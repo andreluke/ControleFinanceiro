@@ -1,0 +1,166 @@
+import { and, count, desc, eq, sql } from "drizzle-orm";
+import { db } from "../../drizzle/client";
+import { categories, paymentMethods, transactions } from "../../drizzle/schema";
+import type {
+	CreateTransactionInput,
+	ListTransactionsInput,
+	UpdateTransactionInput,
+} from "./transactions.schema";
+
+export class TransactionModel {
+	async findAll(userId: string, filters: ListTransactionsInput) {
+		const query = db
+			.select({
+				id: transactions.id,
+				description: transactions.description,
+				subDescription: transactions.subDescription,
+				amount: transactions.amount,
+				type: transactions.type,
+				date: transactions.date,
+				categoryId: transactions.categoryId,
+				category: {
+					id: categories.id,
+					name: categories.name,
+					color: categories.color,
+					icon: categories.icon,
+				},
+				paymentMethodId: transactions.paymentMethodId,
+				paymentMethod: {
+					id: paymentMethods.id,
+					name: paymentMethods.name,
+				},
+				createdAt: transactions.createdAt,
+			})
+			.from(transactions)
+			.leftJoin(categories, eq(transactions.categoryId, categories.id))
+			.leftJoin(
+				paymentMethods,
+				eq(transactions.paymentMethodId, paymentMethods.id),
+			)
+			.where(
+				and(
+					eq(transactions.userId, userId),
+					filters.type ? eq(transactions.type, filters.type) : undefined,
+					filters.categoryId
+						? eq(transactions.categoryId, filters.categoryId)
+						: undefined,
+					filters.paymentMethodId
+						? eq(transactions.paymentMethodId, filters.paymentMethodId)
+						: undefined,
+					filters.month
+						? sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}`
+						: undefined,
+				),
+			)
+			.orderBy(desc(transactions.date), desc(transactions.createdAt))
+			.limit(filters.limit)
+			.offset((filters.page - 1) * filters.limit);
+
+		const countQuery = db
+			.select({ count: count() })
+			.from(transactions)
+			.where(
+				and(
+					eq(transactions.userId, userId),
+					filters.type ? eq(transactions.type, filters.type) : undefined,
+					filters.categoryId
+						? eq(transactions.categoryId, filters.categoryId)
+						: undefined,
+					filters.paymentMethodId
+						? eq(transactions.paymentMethodId, filters.paymentMethodId)
+						: undefined,
+					filters.month
+						? sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}`
+						: undefined,
+				),
+			);
+
+		const [data, [{ count: totalSize }]] = await Promise.all([
+			query,
+			countQuery,
+		]);
+
+		return {
+			data,
+			total: Number(totalSize),
+		};
+	}
+
+	async findById(id: string, userId: string) {
+		const [transaction] = await db
+			.select({
+				id: transactions.id,
+				description: transactions.description,
+				subDescription: transactions.subDescription,
+				amount: transactions.amount,
+				type: transactions.type,
+				date: transactions.date,
+				categoryId: transactions.categoryId,
+				category: {
+					id: categories.id,
+					name: categories.name,
+					color: categories.color,
+					icon: categories.icon,
+				},
+				paymentMethodId: transactions.paymentMethodId,
+				paymentMethod: {
+					id: paymentMethods.id,
+					name: paymentMethods.name,
+				},
+				createdAt: transactions.createdAt,
+			})
+			.from(transactions)
+			.leftJoin(categories, eq(transactions.categoryId, categories.id))
+			.leftJoin(
+				paymentMethods,
+				eq(transactions.paymentMethodId, paymentMethods.id),
+			)
+			.where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+			.limit(1);
+
+		return transaction;
+	}
+
+	async createTransaction(userId: string, data: CreateTransactionInput) {
+		const [transaction] = await db
+			.insert(transactions)
+			.values({
+				userId,
+				description: data.description,
+				subDescription: data.subDescription,
+				amount: data.amount.toString(),
+				type: data.type,
+				date: new Date(data.date),
+				categoryId: data.categoryId,
+				paymentMethodId: data.paymentMethodId,
+			})
+			.returning();
+		return transaction;
+	}
+
+	async updateTransaction(
+		id: string,
+		userId: string,
+		data: UpdateTransactionInput,
+	) {
+		// biome-ignore lint/suspicious/noExplicitAny: Required for partial dynamic update
+		const updateData: any = { ...data };
+		if (data.date) updateData.date = new Date(data.date);
+		if (data.amount) updateData.amount = data.amount.toString();
+
+		const [updated] = await db
+			.update(transactions)
+			.set(updateData)
+			.where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+			.returning();
+		return updated;
+	}
+
+	async deleteTransaction(id: string, userId: string) {
+		const [deleted] = await db
+			.delete(transactions)
+			.where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+			.returning();
+		return deleted;
+	}
+}
