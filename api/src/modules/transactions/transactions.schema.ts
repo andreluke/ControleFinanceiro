@@ -25,6 +25,14 @@ export const listTransactionsSchema = z.object({
 	type: z.enum(["income", "expense"]).optional(),
 	categoryId: z.string().uuid().optional(),
 	paymentMethodId: z.string().uuid().optional(),
+	startDate: z
+		.string()
+		.datetime({ message: "startDate deve ser ISO 8601 válida" })
+		.optional(),
+	endDate: z
+		.string()
+		.datetime({ message: "endDate deve ser ISO 8601 válida" })
+		.optional(),
 	page: z.coerce.number().min(1).default(1),
 	limit: z.coerce.number().min(1).max(100).default(10),
 });

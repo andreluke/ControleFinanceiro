@@ -1,4 +1,4 @@
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "../../drizzle/client";
 import { categories, paymentMethods, transactions } from "../../drizzle/schema";
 import type {
@@ -9,6 +9,9 @@ import type {
 
 export class TransactionModel {
 	async findAll(userId: string, filters: ListTransactionsInput) {
+		const startDate = filters.startDate ? new Date(filters.startDate) : undefined;
+		const endDate = filters.endDate ? new Date(filters.endDate) : undefined;
+
 		const query = db
 			.select({
 				id: transactions.id,
@@ -50,6 +53,8 @@ export class TransactionModel {
 					filters.month
 						? sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}`
 						: undefined,
+					startDate ? gte(transactions.date, startDate) : undefined,
+					endDate ? lte(transactions.date, endDate) : undefined,
 				),
 			)
 			.orderBy(desc(transactions.date), desc(transactions.createdAt))
@@ -72,6 +77,8 @@ export class TransactionModel {
 					filters.month
 						? sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}`
 						: undefined,
+					startDate ? gte(transactions.date, startDate) : undefined,
+					endDate ? lte(transactions.date, endDate) : undefined,
 				),
 			);
 

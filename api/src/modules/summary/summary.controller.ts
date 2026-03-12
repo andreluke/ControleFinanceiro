@@ -9,10 +9,10 @@ export class SummaryController {
 
 	getSummary = async (request: FastifyRequest, reply: FastifyReply) => {
 		const { sub: userId } = request.user as { sub: string };
-		const { month } = summaryQuerySchema.parse(request.query);
+		const { month, period } = summaryQuerySchema.parse(request.query);
 
 		const [err, summary] = await catchError(
-			this.summaryModel.getSummary(userId, month),
+			this.summaryModel.getSummary(userId, { month, period }),
 		);
 		if (err) throw new AppError("Erro ao obter resumo", 500);
 
@@ -32,9 +32,10 @@ export class SummaryController {
 
 	getByCategorySummary = async (request: FastifyRequest, reply: FastifyReply) => {
 		const { sub: userId } = request.user as { sub: string };
+		const { month, period } = summaryQuerySchema.parse(request.query);
 
 		const [err, byCategory] = await catchError(
-			this.summaryModel.getByCategorySummary(userId),
+			this.summaryModel.getByCategorySummary(userId, { month, period }),
 		);
 		if (err) throw new AppError("Erro ao obter resumo por categoria", 500);
 
