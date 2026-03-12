@@ -20,7 +20,7 @@ describe('Payment Methods Module', () => {
       password: 'password123'
     })
     userId = user.id
-    token = await app.jwtSign({ sub: user.id, email: user.email })
+    token = await app.jwt.sign({ sub: user.id, email: user.email })
   })
 
   describe('PaymentMethodModel', () => {

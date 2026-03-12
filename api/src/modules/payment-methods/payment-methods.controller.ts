@@ -12,13 +12,18 @@ export class PaymentMethodsController {
 
 	listPaymentMethods = async (request: FastifyRequest, reply: FastifyReply) => {
 		const { sub: userId } = request.user as { sub: string };
-		const [err, methods] = await catchError(this.paymentMethodModel.findAll(userId));
+		const [err, methods] = await catchError(
+			this.paymentMethodModel.findAll(userId),
+		);
 		if (err) throw new AppError("Erro ao listar métodos de pagamento", 500);
 
 		return reply.send(methods);
 	};
 
-	createPaymentMethod = async (request: FastifyRequest, reply: FastifyReply) => {
+	createPaymentMethod = async (
+		request: FastifyRequest,
+		reply: FastifyReply,
+	) => {
 		const { sub: userId } = request.user as { sub: string };
 		const body = createPaymentMethodSchema.parse(request.body);
 

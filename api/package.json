@@ -10,11 +10,13 @@
     "start": "node --env-file .env build/index.js",
     "drizzle:generate": "drizzle-kit generate",
     "drizzle:migrate": "drizzle-kit migrate",
+    "drizzle:migrate:test": "cross-env DATABASE_URL=postgres://test:test@localhost:5433/financeapp_test drizzle-kit migrate",
     "drizzle:studio": "drizzle-kit studio",
     "lint": "biome check src",
     "format": "biome format --write src",
     "type-check": "tsc --noEmit",
-    "test": "vitest --env-file .env"
+    "test": "vitest --verbose",
+    "test:ci": "cross-env DATABASE_URL=postgres://test:test@localhost:5433/financeapp_test vitest run"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
@@ -32,6 +34,8 @@
     "@types/bcryptjs": "^3.0.0",
     "@types/node": "^22.10.0",
     "@vitest/coverage-v8": "^4.0.18",
+    "cross-env": "^10.1.0",
+    "dotenv": "^17.3.1",
     "drizzle-kit": "^0.28.0",
     "tsup": "^8.3.0",
     "tsx": "^4.19.2",

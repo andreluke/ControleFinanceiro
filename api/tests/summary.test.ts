@@ -21,7 +21,7 @@ describe('Summary Module', () => {
       password: 'password123'
     })
     userId = user.id
-    token = await app.jwtSign({ sub: user.id, email: user.email })
+    token = await app.jwt.sign({ sub: user.id, email: user.email })
 
     // Create some transactions
     await transactionModel.createTransaction(userId, {
@@ -73,7 +73,7 @@ describe('Summary Module', () => {
     it('should return category breakdown', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/summary/categories',
+        url: '/summary/by-category',
         headers: {
           authorization: `Bearer ${token}`
         }

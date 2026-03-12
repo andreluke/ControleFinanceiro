@@ -27,7 +27,7 @@ describe('Transactions Module', () => {
       password: 'password123'
     })
     userId = user.id
-    token = await app.jwtSign({ sub: user.id, email: user.email })
+    token = await app.jwt.sign({ sub: user.id, email: user.email })
 
     const category = await categoryModel.createCategory(userId, { name: 'Food' })
     categoryId = category.id

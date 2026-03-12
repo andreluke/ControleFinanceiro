@@ -65,7 +65,8 @@ export class TransactionsController {
 				this.paymentMethodModel.findById(body.paymentMethodId, userId),
 			);
 			if (errPm) throw new AppError("Erro ao validar método de pagamento", 500);
-			if (!method) throw new AppError("Método de pagamento não encontrado", 404);
+			if (!method)
+				throw new AppError("Método de pagamento não encontrado", 404);
 		}
 
 		const [errCreate, transaction] = await catchError(
@@ -97,7 +98,8 @@ export class TransactionsController {
 				this.paymentMethodModel.findById(body.paymentMethodId, userId),
 			);
 			if (errPm) throw new AppError("Erro ao validar método de pagamento", 500);
-			if (!method) throw new AppError("Método de pagamento não encontrado", 404);
+			if (!method)
+				throw new AppError("Método de pagamento não encontrado", 404);
 		}
 
 		const [errUpdate, updated] = await catchError(

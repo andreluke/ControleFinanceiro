@@ -8,7 +8,10 @@ import { env } from "../settings/env";
 import { registerRoutes } from "./routes";
 
 export async function buildApp() {
-	const app = Fastify({ logger: true });
+	const isTest = process.env.NODE_ENV === 'test'
+	const app = Fastify({
+		logger: !isTest
+	});
 
 	await app.register(cors, { origin: env.CORS_ORIGIN });
 	await app.register(jwt, { secret: env.JWT_SECRET });
