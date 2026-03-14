@@ -39,8 +39,7 @@ export const createRecurringTransactionSchema =
 		(data) => {
 			if (data.frequency === "custom") {
 				return (
-					data.customIntervalDays !== undefined &&
-					data.customIntervalDays > 0
+					data.customIntervalDays !== undefined && data.customIntervalDays > 0
 				);
 			}
 			return true;

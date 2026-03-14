@@ -7,8 +7,8 @@ import { TransactionModel } from "../transactions/transactions.model";
 import { RecurringTransactionModel } from "./recurring.model";
 import {
 	createRecurringTransactionSchema,
-	updateRecurringTransactionSchema,
 	listRecurringTransactionsSchema,
+	updateRecurringTransactionSchema,
 } from "./recurring.schema";
 
 export class RecurringTransactionController {
@@ -29,7 +29,11 @@ export class RecurringTransactionController {
 		const [err, result] = await catchError(
 			this.recurringModel.findAll(userId, filters),
 		);
-		if (err) throw new AppError(`Erro ao listar transações recorrentes, ${err.message}`, 500);
+		if (err)
+			throw new AppError(
+				`Erro ao listar transações recorrentes, ${err.message}`,
+				500,
+			);
 
 		return reply.send(result);
 	};
@@ -255,7 +259,10 @@ export class RecurringTransactionController {
 					nextDate.setFullYear(nextDate.getFullYear() + 1);
 					break;
 				case "custom": {
-					const interval = Number.parseInt(recurring.customIntervalDays || "0", 10);
+					const interval = Number.parseInt(
+						recurring.customIntervalDays || "0",
+						10,
+					);
 					if (interval > 0) {
 						nextDate = new Date(lastGen);
 						nextDate.setDate(nextDate.getDate() + interval);

@@ -1,43 +1,54 @@
 import { z } from "zod";
 
+export const transactionTypeSchema = z.enum(["income", "expense"]);
+export type TransactionType = z.infer<typeof transactionTypeSchema>;
+
 export const exportFilterSchema = z.object({
-	startDate: z
-		.string()
-		.datetime({ message: "Data inicial deve ser ISO 8601 válida" })
-		.optional(),
-	endDate: z
-		.string()
-		.datetime({ message: "Data final deve ser ISO 8601 válida" })
-		.optional(),
-	type: z.enum(["income", "expense"]).optional(),
-	categoryId: z.string().uuid().optional(),
+	startDate: z.string().optional(),
+	endDate: z.string().optional(),
+	type: transactionTypeSchema.optional(),
+	categoryId: z.string().optional(),
 });
 
 export type ExportFilter = z.infer<typeof exportFilterSchema>;
 
-export interface TransactionExportRow {
-	date: string;
-	description: string;
-	category: string | null;
-	paymentMethod: string | null;
-	type: "income" | "expense";
-	amount: number;
-}
+export const transactionRowSchema = z.object({
+	date: z.string(),
+	description: z.string(),
+	category: z.string(),
+	categoryColor: z.string(),
+	paymentMethod: z.string(),
+	type: transactionTypeSchema,
+	amount: z.number(),
+});
 
-export interface ExcelExportRow {
-	valor: string;
-	descricao: string;
-	categoria: string;
-	metodoPagamento: string;
-	tipo: string;
-	data: string;
-	total: number;
-}
+export type TransactionRow = z.infer<typeof transactionRowSchema>;
 
-export interface PdfExportRow {
-	date: string;
-	description: string;
-	category: string;
-	type: string;
-	total: string;
-}
+export const categorySummarySchema = z.object({
+	category: z.string(),
+	categoryColor: z.string(),
+	total: z.number(),
+	percentage: z.number(),
+});
+
+export type CategorySummary = z.infer<typeof categorySummarySchema>;
+
+export const monthlySummarySchema = z.object({
+	month: z.string(),
+	income: z.number(),
+	expense: z.number(),
+	balance: z.number(),
+});
+
+export type MonthlySummary = z.infer<typeof monthlySummarySchema>;
+
+export const dashboardSummarySchema = z.object({
+	totalIncome: z.number(),
+	totalExpense: z.number(),
+	balance: z.number(),
+	byCategory: z.array(categorySummarySchema),
+	byMonth: z.array(monthlySummarySchema),
+	transactionCount: z.number(),
+});
+
+export type DashboardSummary = z.infer<typeof dashboardSummarySchema>;
