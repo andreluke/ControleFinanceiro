@@ -9,7 +9,9 @@ import type {
 
 export class TransactionModel {
 	async findAll(userId: string, filters: ListTransactionsInput) {
-		const startDate = filters.startDate ? new Date(filters.startDate) : undefined;
+		const startDate = filters.startDate
+			? new Date(filters.startDate)
+			: undefined;
 		const endDate = filters.endDate ? new Date(filters.endDate) : undefined;
 
 		const query = db

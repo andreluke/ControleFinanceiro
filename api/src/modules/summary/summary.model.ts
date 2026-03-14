@@ -71,8 +71,16 @@ function resolveRange(filters: SummaryFilters): DateRange {
 	}
 
 	const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
-	const endExclusive = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 1);
-	const previousStart = new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1);
+	const endExclusive = new Date(
+		baseDate.getFullYear(),
+		baseDate.getMonth() + 1,
+		1,
+	);
+	const previousStart = new Date(
+		baseDate.getFullYear(),
+		baseDate.getMonth() - 1,
+		1,
+	);
 	const previousEndExclusive = start;
 
 	return { start, endExclusive, previousStart, previousEndExclusive };

@@ -30,7 +30,10 @@ export class SummaryController {
 		return reply.send(monthly);
 	};
 
-	getByCategorySummary = async (request: FastifyRequest, reply: FastifyReply) => {
+	getByCategorySummary = async (
+		request: FastifyRequest,
+		reply: FastifyReply,
+	) => {
 		const { sub: userId } = request.user as { sub: string };
 		const { month, period } = summaryQuerySchema.parse(request.query);
 

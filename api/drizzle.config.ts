@@ -1,10 +1,11 @@
 import { defineConfig } from 'drizzle-kit'
+import { env } from './src/settings/env'
 
 export default defineConfig({
   schema: './src/drizzle/schema.ts',
   out: './src/drizzle/migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? 'postgres://financeapp:financeapp@localhost:5432/financeapp',
+    url: env.DATABASE_URL,
   },
 })
