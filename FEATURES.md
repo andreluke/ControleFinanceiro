@@ -1,6 +1,6 @@
 # Design System - FinanceApp
 
-Este documento define o design system do FinanceApp, baseado nas interfaces de referência (FinanceApp Dashboard e Fintech Pro).
+Este documento define o design system do FinanceApp, baseado nas interfaces de referência (FinanceApp Dashboard e fintech Pro).
 
 ---
 
@@ -226,64 +226,9 @@ module.exports = {
 
 # Próximas Features - Planejamento
 
-## 🔴 A MAIS IMPORTANTE
+## 🔴 Alta Prioridade
 
-### Períodos Personalizados para Transações Recorrentes
-
-**Objetivo:** Permitir criação de transações recorrentes com intervalos customizados.
-
-**Funcionalidades:**
-- Intervalo customizado em dias (ex: 3 em 3 dias, 15 em 15 dias)
-- Alterar schema do banco e API para suportar `customIntervalDays`
-- Atualizar UI do RecurringModal para escolher entre frequência fixa vs intervalo customizado
-- Adaptar lógica de processamento para calcular próxima data corretamente
-
-**Schema sugerido:**
-```typescript
-type FrequencyType = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'
-
-interface CreateRecurringTransactionInput {
-  // ...existing fields
-  frequency: FrequencyType
-  customIntervalDays?: number // 3, 5, 7, 15, 20, 30, etc.
-}
-```
-
----
-
-## 🟠 Alta Prioridade
-
-### 1. Dashboard com Gráficos
-
-**Objetivo:** Visualizar dados financeiros de forma gráfica.
-
-**Funcionalidades:**
-- Gráfico de despesas por categoria (pizza/barra)
-- Evolução patrimonial mensal (linha)
-- Comparativo receitas vs despesas (barra agrupada)
-- Totais do período atual
-
-**Tech:**
-- Utilizar `recharts` (já instalado)
-
----
-
-### 2. Relatórios Exportáveis
-
-**Objetivo:** Exportar dados para uso externo.
-
-**Funcionalidades:**
-- Exportar transações para Excel/CSV
-- Relatório mensal em PDF
-- Filtro por período na exportação
-
-**Tech:**
-- `xlsx` para Excel
-- `jspdf` ou similar para PDF
-
----
-
-### 3. Metas e Orçamentos
+### 1. Metas e Orçamentos
 
 **Objetivo:** Controlar gastos por categoria.
 
@@ -294,9 +239,86 @@ interface CreateRecurringTransactionInput {
 
 ---
 
-## 🟡 Média Prioridade
+### 2. Notificações por E-mail
 
-### 4. Contas Bancárias
+**Objetivo:** Lembrar o usuário de transações recorrentes pendentes.
+
+**Funcionalidades:**
+- Enviar e-mail 1 dia antes do vencimento de transação recorrente
+- Template HTML com detalhes da transação
+- Configuração de preferências de notificação
+- Queue para processamento assíncrono
+
+**Tech:**
+- Nodemailer ou Resend
+- Bull/Redis para filas (opcional)
+- Cron job para verificar transações do dia
+
+---
+
+## 🟠 Média Prioridade
+
+### Filtro de Mês Customizado
+
+**Objetivo:** Permitir filtrar transações por mês específico no formato "janeiro/2026".
+
+**Funcionalidades:**
+- Selector de mês/ano no header
+- Navegação entre meses (próximo/anterior)
+- Atalhos: "Este mês", "Mês anterior"
+- URL atualizável com filtro (?month=2026-01)
+
+---
+
+### 3. Tags/Labels
+
+**Objetivo:** Categorização manual de transações.
+
+**Funcionalidades:**
+- Criar tags personalizadas
+- Filtrar transações por tags
+- Múltiplas tags por transação
+- Relatórios por tag
+
+---
+
+### 4. Dívidas e Parcelas
+
+**Objetivo:** Controle de dívidas e compras parceladas.
+
+**Funcionalidades:**
+- Registrar dívida com número de parcelas
+- Acompanhar parcelas pagas/restantes
+- Juros e total pago
+- Alertas de vencimento
+
+---
+
+### 5. Backup Criptografado
+
+**Objetivo:** Preservar e restaurar dados com segurança.
+
+**Funcionalidades:**
+- Exportar todos os dados em JSON criptografado
+- Senha para descriptografar na importação
+- Backup manual
+
+---
+
+### 6. Login Social
+
+**Objetivo:** Autenticação facilitada.
+
+**Funcionalidades:**
+- Login com Google
+- Login com Apple
+- Vincular conta social à conta existente
+
+---
+
+## 🟢 Baixa Prioridade
+
+### 7. Contas Bancárias
 
 **Objetivo:** Gerenciar múltiplas contas.
 
@@ -307,42 +329,40 @@ interface CreateRecurringTransactionInput {
 
 ---
 
-### 5. Backup/Importação
+### 8. Investimentos
 
-**Objetivo:** Preservar e restaurar dados.
+**Objetivo:** Controle de investimentos e patrimônio.
 
 **Funcionalidades:**
-- Exportar todos os dados em JSON
-- Importar dados de planilhas (Excel/CSV)
-- Backup automático (opcional)
+- Cadastrar investimentos (RF, RV, FIs, etc.)
+- Acompanhar evolução patrimonial
+- Rentabilidade mensal
 
 ---
 
-### 6. Notificações
+### 9. Planejamento Financeiro (Yotei)
 
-**Objetivo:** Lembrar de obrigações financeiras.
+**Objetivo:** Planejar metas financeiras futuras.
 
 **Funcionalidades:**
-- Lembrete de transações recorrentes (1 dia antes)
-- Alertas de contas a pagar
-- Notificações no browser (Push API)
+- Definir objetivos (ex: emergência, viagem, carro)
+- Definir prazo e valor mensal para poupar
+- Acompanhar progresso
 
 ---
 
-## 🟢 Baixa Prioridade
+### 10. PWA - App Instalável
 
-### 7. Multiusuário (Futuro)
-
-**Objetivo:** Compartilhar despesas.
+**Objetivo:** Melhor experiência mobile.
 
 **Funcionalidades:**
-- Criar grupo/família
-- Compartilhar despesas
-- Controle de acesso por usuário
+- Installable (manifest.json)
+- Offline mode básico
+- Ícone na tela inicial
 
 ---
 
-### 8. Tema Claro (Opcional)
+### 11. Tema Claro
 
 **Objetivo:** Suporte a light mode.
 
@@ -357,15 +377,17 @@ interface CreateRecurringTransactionInput {
 
 | # | Feature | Prioridade | Complexidade |
 |---|---------|------------|--------------|
-| 1 | Períodos Personalizados | 🔴 Alta | Alta |
-| 2 | Dashboard com Gráficos | 🟠 Alta | Média |
-| 3 | Relatórios Exportáveis | 🟠 Alta | Baixa |
-| 4 | Metas e Orçamentos | 🟠 Alta | Média |
-| 5 | Contas Bancárias | 🟡 Média | Média |
-| 6 | Backup/Importação | 🟡 Média | Baixa |
-| 7 | Notificações | 🟡 Média | Alta |
-| 8 | Multiusuário | 🟢 Baixa | Alta |
-| 9 | Tema Claro | 🟢 Baixa | Baixa |
+| 1 | Metas e Orçamentos | 🔴 Alta | Média |
+| 2 | Notificações por E-mail | 🔴 Alta | Média |
+| 3 | Tags/Labels | 🟠 Média | Baixa |
+| 4 | Dívidas e Parcelas | 🟠 Média | Média |
+| 5 | Backup Criptografado | 🟠 Média | Média |
+| 6 | Login Social | 🟠 Média | Média |
+| 7 | Contas Bancárias | 🟢 Baixa | Alta |
+| 8 | Investimentos | 🟢 Baixa | Alta |
+| 9 | Planejamento (Yotei) | 🟢 Baixa | Média |
+| 10 | PWA | 🟢 Baixa | Baixa |
+| 11 | Tema Claro | 🟢 Baixa | Baixa |
 
 ---
 
@@ -378,4 +400,4 @@ interface CreateRecurringTransactionInput {
 
 ---
 
-*Última atualização: 2026-03-12*
+*Última atualização: 2026-03-14*
