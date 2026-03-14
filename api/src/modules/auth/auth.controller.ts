@@ -44,16 +44,26 @@ export class AuthController {
 			throw new AppError("Credenciais inválidas", 401);
 		}
 
+		const expiresIn = body.rememberMe ? "30d" : "24h";
+
 		const [errToken, token] = await catchError(
 			reply.jwtSign(
 				{
 					sub: user.id,
 					email: user.email,
 				},
-				{ expiresIn: "7d" },
+				{ expiresIn },
 			),
 		);
 		if (errToken) throw new AppError("Erro ao gerar token", 500);
+
+		reply.setCookie("token", token, {
+			path: "/",
+			httpOnly: true,
+			sameSite: "lax",
+			secure: process.env.NODE_ENV === "production",
+			maxAge: body.rememberMe ? 30 * 24 * 60 * 60 : 24 * 60 * 60,
+		});
 
 		return reply.send({
 			token,
@@ -77,5 +87,10 @@ export class AuthController {
 		}
 
 		return reply.send({ user });
+	};		
+
+	logout = async (_request: FastifyRequest, reply: FastifyReply) => {
+		reply.clearCookie("token", { path: "/" });
+		return reply.send({ message: "Logout realizado" });
 	};
 }

@@ -29,7 +29,7 @@ export class RecurringTransactionController {
 		const [err, result] = await catchError(
 			this.recurringModel.findAll(userId, filters),
 		);
-		if (err) throw new AppError("Erro ao listar transações recorrentes", 500);
+		if (err) throw new AppError(`Erro ao listar transações recorrentes, ${err.message}`, 500);
 
 		return reply.send(result);
 	};
@@ -221,6 +221,7 @@ export class RecurringTransactionController {
 
 	private calculateNextDate(recurring: {
 		frequency: string;
+		customIntervalDays: string | null;
 		dayOfMonth: string;
 		dayOfWeek: string | null;
 		startDate: Date;
@@ -253,6 +254,14 @@ export class RecurringTransactionController {
 					nextDate = new Date(lastGen);
 					nextDate.setFullYear(nextDate.getFullYear() + 1);
 					break;
+				case "custom": {
+					const interval = Number.parseInt(recurring.customIntervalDays || "0", 10);
+					if (interval > 0) {
+						nextDate = new Date(lastGen);
+						nextDate.setDate(nextDate.getDate() + interval);
+					}
+					break;
+				}
 			}
 		} else {
 			nextDate = startDate;

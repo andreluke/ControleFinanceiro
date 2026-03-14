@@ -18,6 +18,7 @@ export const frequencyEnum = pgEnum("frequency_type", [
 	"weekly",
 	"monthly",
 	"yearly",
+	"custom",
 ]);
 
 export const users = pgTable("users", {
@@ -79,6 +80,7 @@ export const recurringTransactions = pgTable("recurring_transactions", {
 		() => paymentMethods.id,
 	),
 	frequency: frequencyEnum("frequency").notNull(),
+	customIntervalDays: numeric("custom_interval_days"),
 	dayOfMonth: numeric("day_of_month").notNull(),
 	dayOfWeek: numeric("day_of_week"),
 	startDate: timestamp("start_date").notNull(),

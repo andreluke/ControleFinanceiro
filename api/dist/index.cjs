@@ -9,11 +9,11 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc3) => {
+var __copyProps = (to, from, except, desc4) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc3 = __getOwnPropDesc(from, key)) || desc3.enumerable });
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc4 = __getOwnPropDesc(from, key)) || desc4.enumerable });
   }
   return to;
 };
@@ -28,6 +28,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/config/app.ts
 var import_cors = __toESM(require("@fastify/cors"), 1);
+var import_cookie = __toESM(require("@fastify/cookie"), 1);
 var import_jwt = __toESM(require("@fastify/jwt"), 1);
 var import_swagger = __toESM(require("@fastify/swagger"), 1);
 var import_swagger_ui = __toESM(require("@fastify/swagger-ui"), 1);
@@ -44,38 +45,78 @@ var AppError = class extends Error {
 };
 
 // src/errors/errorHandler.ts
+var import_zod = require("zod");
+var isDevelopment = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+var errorMessages = {
+  DEFAULT: "Algo deu errado. Tente novamente mais tarde.",
+  DB_CONNECTION: "Erro de conex\xE3o com o banco de dados.",
+  DB_QUERY: "Erro ao processar sua solicita\xE7\xE3o.",
+  AUTH_INVALID: "E-mail ou senha incorretos.",
+  AUTH_EMAIL_EXISTS: "Este e-mail j\xE1 est\xE1 cadastrado.",
+  AUTH_UNAUTHORIZED: "Voc\xEA precisa estar autenticado para acessar este recurso.",
+  NOT_FOUND: "Registro n\xE3o encontrado.",
+  VALIDATION: "Dados inv\xE1lidos. Verifique os campos obrigat\xF3rios."
+};
 async function errorHandler(error, _request, reply) {
+  const err = error;
+  if (err.name === "ZodError" || err instanceof import_zod.ZodError) {
+    const zodErr = err;
+    const firstError = zodErr.errors[0];
+    let message2 = "Dados inv\xE1lidos.";
+    if (firstError) {
+      const field = firstError.path.join(".");
+      const fieldName = field ? field.replace(/.*\./, "") : "campo";
+      if (firstError.code === "invalid_type") {
+        message2 = `O campo "${fieldName}" \xE9 obrigat\xF3rio.`;
+      } else if (firstError.code === "invalid_enum_value") {
+        const validOptions = firstError.options?.join(", ") || "valores v\xE1lidos";
+        message2 = `Valor inv\xE1lido para "${fieldName}". Use: ${validOptions}`;
+      } else {
+        message2 = firstError.message || "Dados inv\xE1lidos.";
+      }
+    }
+    return reply.status(400).send({
+      statusCode: 400,
+      error: "Validation Error",
+      message: message2,
+      details: isDevelopment ? zodErr.errors : void 0
+    });
+  }
   if (error instanceof AppError) {
+    const friendlyMessage = errorMessages[error.message.toUpperCase().replace(/ /g, "_")] || error.message;
     return reply.status(error.statusCode).send({
       statusCode: error.statusCode,
-      error: "Bad Request",
-      message: error.message
+      error: error.statusCode === 401 ? "Unauthorized" : "Bad Request",
+      message: friendlyMessage
     });
   }
   if (error.validation) {
     return reply.status(400).send({
       statusCode: 400,
       error: "Validation Error",
-      message: error.message,
-      details: error.validation
+      message: errorMessages.VALIDATION,
+      details: isDevelopment ? error.validation : void 0
     });
   }
   const statusCode = error.statusCode ?? 500;
-  reply.log.error(error);
+  const message = statusCode >= 500 ? errorMessages.DEFAULT : error.message;
+  if (isDevelopment) {
+    reply.log.error(error);
+  }
   return reply.status(statusCode).send({
     statusCode,
     error: statusCode >= 500 ? "Internal Server Error" : "Error",
-    message: statusCode >= 500 ? "An unexpected error occurred" : error.message
+    message
   });
 }
 
 // src/settings/env.ts
-var import_zod = require("zod");
-var envSchema = import_zod.z.object({
-  PORT: import_zod.z.coerce.number().default(3e3),
-  DATABASE_URL: import_zod.z.string().url(),
-  JWT_SECRET: import_zod.z.string().min(32),
-  CORS_ORIGIN: import_zod.z.string().default("*")
+var import_zod2 = require("zod");
+var envSchema = import_zod2.z.object({
+  PORT: import_zod2.z.coerce.number().default(3e3),
+  DATABASE_URL: import_zod2.z.string().url(),
+  JWT_SECRET: import_zod2.z.string().min(32),
+  CORS_ORIGIN: import_zod2.z.string().default("*")
 });
 var env = envSchema.parse(process.env);
 
@@ -102,7 +143,9 @@ var import_postgres = __toESM(require("postgres"), 1);
 var schema_exports = {};
 __export(schema_exports, {
   categories: () => categories,
+  frequencyEnum: () => frequencyEnum,
   paymentMethods: () => paymentMethods,
+  recurringTransactions: () => recurringTransactions,
   transactionTypeEnum: () => transactionTypeEnum,
   transactions: () => transactions,
   users: () => users
@@ -111,6 +154,13 @@ var import_pg_core = require("drizzle-orm/pg-core");
 var transactionTypeEnum = (0, import_pg_core.pgEnum)("transaction_type", [
   "income",
   "expense"
+]);
+var frequencyEnum = (0, import_pg_core.pgEnum)("frequency_type", [
+  "daily",
+  "weekly",
+  "monthly",
+  "yearly",
+  "custom"
 ]);
 var users = (0, import_pg_core.pgTable)("users", {
   id: (0, import_pg_core.uuid)("id").primaryKey().defaultRandom(),
@@ -146,6 +196,28 @@ var transactions = (0, import_pg_core.pgTable)("transactions", {
   type: transactionTypeEnum("type").notNull(),
   date: (0, import_pg_core.timestamp)("date").notNull(),
   createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow()
+});
+var recurringTransactions = (0, import_pg_core.pgTable)("recurring_transactions", {
+  id: (0, import_pg_core.uuid)("id").primaryKey().defaultRandom(),
+  userId: (0, import_pg_core.uuid)("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  description: (0, import_pg_core.text)("description").notNull(),
+  subDescription: (0, import_pg_core.text)("sub_description"),
+  amount: (0, import_pg_core.numeric)("amount", { precision: 12, scale: 2 }).notNull(),
+  type: transactionTypeEnum("type").notNull(),
+  categoryId: (0, import_pg_core.uuid)("category_id").references(() => categories.id),
+  paymentMethodId: (0, import_pg_core.uuid)("payment_method_id").references(
+    () => paymentMethods.id
+  ),
+  frequency: frequencyEnum("frequency").notNull(),
+  customIntervalDays: (0, import_pg_core.numeric)("custom_interval_days"),
+  dayOfMonth: (0, import_pg_core.numeric)("day_of_month").notNull(),
+  dayOfWeek: (0, import_pg_core.numeric)("day_of_week"),
+  startDate: (0, import_pg_core.timestamp)("start_date").notNull(),
+  endDate: (0, import_pg_core.timestamp)("end_date"),
+  isActive: (0, import_pg_core.boolean)("is_active").notNull().default(true),
+  lastGeneratedAt: (0, import_pg_core.timestamp)("last_generated_at"),
+  createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
+  updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
 });
 
 // src/drizzle/client.ts
@@ -188,15 +260,16 @@ var AuthModel = class {
 };
 
 // src/modules/auth/auth.schema.ts
-var import_zod2 = require("zod");
-var registerSchema = import_zod2.z.object({
-  name: import_zod2.z.string().min(1).max(120),
-  email: import_zod2.z.string().email(),
-  password: import_zod2.z.string().min(6).max(128)
+var import_zod3 = require("zod");
+var registerSchema = import_zod3.z.object({
+  name: import_zod3.z.string().min(1).max(120),
+  email: import_zod3.z.string().email(),
+  password: import_zod3.z.string().min(6).max(128)
 });
-var loginSchema = import_zod2.z.object({
-  email: import_zod2.z.string().email(),
-  password: import_zod2.z.string().min(6).max(128)
+var loginSchema = import_zod3.z.object({
+  email: import_zod3.z.string().email(),
+  password: import_zod3.z.string().min(6).max(128),
+  rememberMe: import_zod3.z.boolean().optional()
 });
 
 // src/modules/auth/auth.controller.ts
@@ -233,16 +306,24 @@ var AuthController = class {
     if (!isValid) {
       throw new AppError("Credenciais inv\xE1lidas", 401);
     }
+    const expiresIn = body.rememberMe ? "30d" : "24h";
     const [errToken, token] = await catchError(
       reply.jwtSign(
         {
           sub: user.id,
           email: user.email
         },
-        { expiresIn: "7d" }
+        { expiresIn }
       )
     );
     if (errToken) throw new AppError("Erro ao gerar token", 500);
+    reply.setCookie("token", token, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: body.rememberMe ? 30 * 24 * 60 * 60 : 24 * 60 * 60
+    });
     return reply.send({
       token,
       user: {
@@ -262,6 +343,10 @@ var AuthController = class {
     }
     return reply.send({ user });
   };
+  logout = async (_request, reply) => {
+    reply.clearCookie("token", { path: "/" });
+    return reply.send({ message: "Logout realizado" });
+  };
 };
 
 // src/modules/auth/auth.routes.ts
@@ -269,6 +354,7 @@ async function registerAuthRoutes(app) {
   const authController = new AuthController();
   app.post("/auth/register", authController.register);
   app.post("/auth/login", authController.login);
+  app.post("/auth/logout", authController.logout);
   app.get("/auth/me", authController.me);
 }
 
@@ -323,11 +409,11 @@ var CategoryModel = class {
 };
 
 // src/modules/categories/categories.schema.ts
-var import_zod3 = require("zod");
-var createCategorySchema = import_zod3.z.object({
-  name: import_zod3.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
-  color: import_zod3.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
-  icon: import_zod3.z.string().optional()
+var import_zod4 = require("zod");
+var createCategorySchema = import_zod4.z.object({
+  name: import_zod4.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
+  color: import_zod4.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
+  icon: import_zod4.z.string().optional()
 });
 var updateCategorySchema = createCategorySchema.partial();
 
@@ -461,9 +547,9 @@ var PaymentMethodModel = class {
 };
 
 // src/modules/payment-methods/payment-methods.schema.ts
-var import_zod4 = require("zod");
-var createPaymentMethodSchema = import_zod4.z.object({
-  name: import_zod4.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100)
+var import_zod5 = require("zod");
+var createPaymentMethodSchema = import_zod5.z.object({
+  name: import_zod5.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100)
 });
 var updatePaymentMethodSchema = createPaymentMethodSchema.partial();
 
@@ -474,7 +560,9 @@ var PaymentMethodsController = class {
   }
   listPaymentMethods = async (request, reply) => {
     const { sub: userId } = request.user;
-    const [err, methods] = await catchError(this.paymentMethodModel.findAll(userId));
+    const [err, methods] = await catchError(
+      this.paymentMethodModel.findAll(userId)
+    );
     if (err) throw new AppError("Erro ao listar m\xE9todos de pagamento", 500);
     return reply.send(methods);
   };
@@ -555,8 +643,534 @@ async function registerPaymentMethodsRoutes(app) {
   );
 }
 
-// src/modules/summary/summary.model.ts
+// src/modules/transactions/transactions.model.ts
 var import_drizzle_orm4 = require("drizzle-orm");
+var TransactionModel = class {
+  async findAll(userId, filters) {
+    const startDate = filters.startDate ? new Date(filters.startDate) : void 0;
+    const endDate = filters.endDate ? new Date(filters.endDate) : void 0;
+    const query = db.select({
+      id: transactions.id,
+      description: transactions.description,
+      subDescription: transactions.subDescription,
+      amount: transactions.amount,
+      type: transactions.type,
+      date: transactions.date,
+      categoryId: transactions.categoryId,
+      category: {
+        id: categories.id,
+        name: categories.name,
+        color: categories.color,
+        icon: categories.icon
+      },
+      paymentMethodId: transactions.paymentMethodId,
+      paymentMethod: {
+        id: paymentMethods.id,
+        name: paymentMethods.name
+      },
+      createdAt: transactions.createdAt
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm4.eq)(transactions.categoryId, categories.id)).leftJoin(
+      paymentMethods,
+      (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, paymentMethods.id)
+    ).where(
+      (0, import_drizzle_orm4.and)(
+        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm4.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm4.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        filters.paymentMethodId ? (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
+        filters.month ? import_drizzle_orm4.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
+        startDate ? (0, import_drizzle_orm4.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm4.lte)(transactions.date, endDate) : void 0
+      )
+    ).orderBy((0, import_drizzle_orm4.desc)(transactions.date), (0, import_drizzle_orm4.desc)(transactions.createdAt)).limit(filters.limit).offset((filters.page - 1) * filters.limit);
+    const countQuery = db.select({ count: (0, import_drizzle_orm4.count)() }).from(transactions).where(
+      (0, import_drizzle_orm4.and)(
+        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm4.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm4.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        filters.paymentMethodId ? (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
+        filters.month ? import_drizzle_orm4.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
+        startDate ? (0, import_drizzle_orm4.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm4.lte)(transactions.date, endDate) : void 0
+      )
+    );
+    const [data, [{ count: totalSize }]] = await Promise.all([
+      query,
+      countQuery
+    ]);
+    return {
+      data,
+      total: Number(totalSize)
+    };
+  }
+  async findById(id, userId) {
+    const [transaction] = await db.select({
+      id: transactions.id,
+      description: transactions.description,
+      subDescription: transactions.subDescription,
+      amount: transactions.amount,
+      type: transactions.type,
+      date: transactions.date,
+      categoryId: transactions.categoryId,
+      category: {
+        id: categories.id,
+        name: categories.name,
+        color: categories.color,
+        icon: categories.icon
+      },
+      paymentMethodId: transactions.paymentMethodId,
+      paymentMethod: {
+        id: paymentMethods.id,
+        name: paymentMethods.name
+      },
+      createdAt: transactions.createdAt
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm4.eq)(transactions.categoryId, categories.id)).leftJoin(
+      paymentMethods,
+      (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, paymentMethods.id)
+    ).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).limit(1);
+    return transaction;
+  }
+  async createTransaction(userId, data) {
+    const [transaction] = await db.insert(transactions).values({
+      userId,
+      description: data.description,
+      subDescription: data.subDescription,
+      amount: data.amount.toString(),
+      type: data.type,
+      date: new Date(data.date),
+      categoryId: data.categoryId,
+      paymentMethodId: data.paymentMethodId
+    }).returning();
+    return transaction;
+  }
+  async updateTransaction(id, userId, data) {
+    const updateData = { ...data };
+    if (data.date) updateData.date = new Date(data.date);
+    if (data.amount) updateData.amount = data.amount.toString();
+    const [updated] = await db.update(transactions).set(updateData).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).returning();
+    return updated;
+  }
+  async deleteTransaction(id, userId) {
+    const [deleted] = await db.delete(transactions).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).returning();
+    return deleted;
+  }
+};
+
+// src/modules/recurring/recurring.model.ts
+var import_drizzle_orm5 = require("drizzle-orm");
+var RecurringTransactionModel = class {
+  async findAll(userId, filters) {
+    let conditions = (0, import_drizzle_orm5.eq)(recurringTransactions.userId, userId);
+    if (filters?.isActive !== void 0) {
+      conditions = (0, import_drizzle_orm5.and)(
+        conditions,
+        (0, import_drizzle_orm5.eq)(recurringTransactions.isActive, filters.isActive)
+      );
+    }
+    if (filters?.type) {
+      conditions = (0, import_drizzle_orm5.and)(
+        conditions,
+        (0, import_drizzle_orm5.eq)(recurringTransactions.type, filters.type)
+      );
+    }
+    return db.select({
+      id: recurringTransactions.id,
+      description: recurringTransactions.description,
+      subDescription: recurringTransactions.subDescription,
+      amount: recurringTransactions.amount,
+      type: recurringTransactions.type,
+      categoryId: recurringTransactions.categoryId,
+      category: {
+        id: categories.id,
+        name: categories.name,
+        color: categories.color,
+        icon: categories.icon
+      },
+      paymentMethodId: recurringTransactions.paymentMethodId,
+      paymentMethod: {
+        id: paymentMethods.id,
+        name: paymentMethods.name
+      },
+      frequency: recurringTransactions.frequency,
+      customIntervalDays: recurringTransactions.customIntervalDays,
+      dayOfMonth: recurringTransactions.dayOfMonth,
+      dayOfWeek: recurringTransactions.dayOfWeek,
+      startDate: recurringTransactions.startDate,
+      endDate: recurringTransactions.endDate,
+      isActive: recurringTransactions.isActive,
+      lastGeneratedAt: recurringTransactions.lastGeneratedAt,
+      createdAt: recurringTransactions.createdAt
+    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm5.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
+      paymentMethods,
+      (0, import_drizzle_orm5.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
+    ).where(conditions).orderBy((0, import_drizzle_orm5.asc)(recurringTransactions.createdAt));
+  }
+  async findById(id, userId) {
+    const [recurring] = await db.select({
+      id: recurringTransactions.id,
+      description: recurringTransactions.description,
+      subDescription: recurringTransactions.subDescription,
+      amount: recurringTransactions.amount,
+      type: recurringTransactions.type,
+      categoryId: recurringTransactions.categoryId,
+      category: {
+        id: categories.id,
+        name: categories.name,
+        color: categories.color,
+        icon: categories.icon
+      },
+      paymentMethodId: recurringTransactions.paymentMethodId,
+      paymentMethod: {
+        id: paymentMethods.id,
+        name: paymentMethods.name
+      },
+      frequency: recurringTransactions.frequency,
+      customIntervalDays: recurringTransactions.customIntervalDays,
+      dayOfMonth: recurringTransactions.dayOfMonth,
+      dayOfWeek: recurringTransactions.dayOfWeek,
+      startDate: recurringTransactions.startDate,
+      endDate: recurringTransactions.endDate,
+      isActive: recurringTransactions.isActive,
+      lastGeneratedAt: recurringTransactions.lastGeneratedAt,
+      createdAt: recurringTransactions.createdAt
+    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm5.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
+      paymentMethods,
+      (0, import_drizzle_orm5.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
+    ).where(
+      (0, import_drizzle_orm5.and)(
+        (0, import_drizzle_orm5.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm5.eq)(recurringTransactions.userId, userId)
+      )
+    ).limit(1);
+    return recurring;
+  }
+  async createRecurringTransaction(userId, data) {
+    const [recurring] = await db.insert(recurringTransactions).values({
+      userId,
+      description: data.description,
+      subDescription: data.subDescription,
+      amount: data.amount.toString(),
+      type: data.type,
+      categoryId: data.categoryId,
+      paymentMethodId: data.paymentMethodId,
+      frequency: data.frequency,
+      customIntervalDays: data.customIntervalDays?.toString(),
+      dayOfMonth: data.dayOfMonth.toString(),
+      dayOfWeek: data.dayOfWeek?.toString(),
+      startDate: new Date(data.startDate),
+      endDate: data.endDate ? new Date(data.endDate) : null,
+      isActive: true
+    }).returning();
+    return recurring;
+  }
+  async updateRecurringTransaction(id, userId, data) {
+    const updateData = { ...data };
+    if (data.amount !== void 0) {
+      updateData.amount = data.amount.toString();
+    }
+    if (data.dayOfMonth !== void 0) {
+      updateData.dayOfMonth = data.dayOfMonth.toString();
+    }
+    if (data.dayOfWeek !== void 0) {
+      updateData.dayOfWeek = data.dayOfWeek.toString();
+    }
+    if (data.customIntervalDays !== void 0) {
+      updateData.customIntervalDays = data.customIntervalDays.toString();
+    }
+    if (data.startDate !== void 0) {
+      updateData.startDate = new Date(data.startDate);
+    }
+    if (data.endDate !== void 0) {
+      updateData.endDate = new Date(data.endDate);
+    }
+    updateData.updatedAt = /* @__PURE__ */ new Date();
+    const [updated] = await db.update(recurringTransactions).set(updateData).where(
+      (0, import_drizzle_orm5.and)(
+        (0, import_drizzle_orm5.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm5.eq)(recurringTransactions.userId, userId)
+      )
+    ).returning();
+    return updated;
+  }
+  async toggleActive(id, userId) {
+    const existing = await this.findById(id, userId);
+    if (!existing) return null;
+    const [updated] = await db.update(recurringTransactions).set({ isActive: !existing.isActive, updatedAt: /* @__PURE__ */ new Date() }).where(
+      (0, import_drizzle_orm5.and)(
+        (0, import_drizzle_orm5.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm5.eq)(recurringTransactions.userId, userId)
+      )
+    ).returning();
+    return updated;
+  }
+  async softDelete(id, userId) {
+    const [deleted] = await db.update(recurringTransactions).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(
+      (0, import_drizzle_orm5.and)(
+        (0, import_drizzle_orm5.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm5.eq)(recurringTransactions.userId, userId)
+      )
+    ).returning();
+    return deleted;
+  }
+};
+
+// src/modules/recurring/recurring.schema.ts
+var import_zod6 = require("zod");
+var recurringTransactionBaseSchema = import_zod6.z.object({
+  description: import_zod6.z.string().min(1, "Descri\xE7\xE3o \xE9 obrigat\xF3ria").max(120),
+  subDescription: import_zod6.z.string().max(120).optional(),
+  amount: import_zod6.z.number().positive("O valor deve ser positivo"),
+  type: import_zod6.z.enum(["income", "expense"], {
+    errorMap: () => ({ message: "O tipo deve ser income ou expense" })
+  }),
+  categoryId: import_zod6.z.string().uuid("ID de categoria inv\xE1lido").optional(),
+  paymentMethodId: import_zod6.z.string().uuid("ID de m\xE9todo de pagamento inv\xE1lido").optional(),
+  frequency: import_zod6.z.enum(["daily", "weekly", "monthly", "yearly", "custom"], {
+    errorMap: () => ({ message: "Frequ\xEAncia inv\xE1lida" })
+  }),
+  customIntervalDays: import_zod6.z.number().min(1, "Intervalo deve ser pelo menos 1 dia").max(365, "Intervalo m\xE1ximo \xE9 365 dias").optional(),
+  dayOfMonth: import_zod6.z.number().min(1, "Dia do m\xEAs deve ser entre 1 e 31").max(31, "Dia do m\xEAs deve ser entre 1 e 31"),
+  dayOfWeek: import_zod6.z.number().min(0).max(6).optional(),
+  startDate: import_zod6.z.string().datetime({
+    message: "Data inicial deve ser ISO 8601 v\xE1lida"
+  }),
+  endDate: import_zod6.z.string().datetime({ message: "Data final deve ser ISO 8601 v\xE1lida" }).optional()
+});
+var createRecurringTransactionSchema = recurringTransactionBaseSchema.refine(
+  (data) => {
+    if (data.frequency === "custom") {
+      return data.customIntervalDays !== void 0 && data.customIntervalDays > 0;
+    }
+    return true;
+  },
+  {
+    message: "Intervalo personalizado \xE9 obrigat\xF3rio para frequ\xEAncia custom",
+    path: ["customIntervalDays"]
+  }
+);
+var updateRecurringTransactionSchema = recurringTransactionBaseSchema.partial();
+var listRecurringTransactionsSchema = import_zod6.z.object({
+  isActive: import_zod6.z.boolean().optional(),
+  type: import_zod6.z.enum(["income", "expense"]).optional()
+});
+
+// src/modules/recurring/recurring.controller.ts
+var RecurringTransactionController = class {
+  constructor(recurringModel = new RecurringTransactionModel(), categoryModel = new CategoryModel(), paymentMethodModel = new PaymentMethodModel(), transactionModel = new TransactionModel()) {
+    this.recurringModel = recurringModel;
+    this.categoryModel = categoryModel;
+    this.paymentMethodModel = paymentMethodModel;
+    this.transactionModel = transactionModel;
+  }
+  listRecurringTransactions = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const filters = listRecurringTransactionsSchema.parse(request.query);
+    const [err, result] = await catchError(
+      this.recurringModel.findAll(userId, filters)
+    );
+    if (err) throw new AppError(`Erro ao listar transa\xE7\xF5es recorrentes, ${err.message}`, 500);
+    return reply.send(result);
+  };
+  getRecurringTransaction = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const { id } = request.params;
+    const [err, recurring] = await catchError(
+      this.recurringModel.findById(id, userId)
+    );
+    if (err) throw new AppError("Erro ao buscar transa\xE7\xE3o recorrente", 500);
+    if (!recurring) {
+      throw new AppError("Transa\xE7\xE3o recorrente n\xE3o encontrada", 404);
+    }
+    return reply.send(recurring);
+  };
+  createRecurringTransaction = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const body = createRecurringTransactionSchema.parse(request.body);
+    if (body.categoryId) {
+      const [errCat, category] = await catchError(
+        this.categoryModel.findById(body.categoryId, userId)
+      );
+      if (errCat) throw new AppError("Erro ao validar categoria", 500);
+      if (!category) throw new AppError("Categoria n\xE3o encontrada", 404);
+    }
+    if (body.paymentMethodId) {
+      const [errPm, method] = await catchError(
+        this.paymentMethodModel.findById(body.paymentMethodId, userId)
+      );
+      if (errPm) throw new AppError("Erro ao validar m\xE9todo de pagamento", 500);
+      if (!method)
+        throw new AppError("M\xE9todo de pagamento n\xE3o encontrado", 404);
+    }
+    const [errCreate, recurring] = await catchError(
+      this.recurringModel.createRecurringTransaction(userId, body)
+    );
+    if (errCreate)
+      throw new AppError("Erro ao criar transa\xE7\xE3o recorrente", 500);
+    return reply.status(201).send(recurring);
+  };
+  updateRecurringTransaction = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const { id } = request.params;
+    const body = updateRecurringTransactionSchema.parse(request.body);
+    if (body.categoryId) {
+      const [errCat, category] = await catchError(
+        this.categoryModel.findById(body.categoryId, userId)
+      );
+      if (errCat) throw new AppError("Erro ao validar categoria", 500);
+      if (!category) throw new AppError("Categoria n\xE3o encontrada", 404);
+    }
+    if (body.paymentMethodId) {
+      const [errPm, method] = await catchError(
+        this.paymentMethodModel.findById(body.paymentMethodId, userId)
+      );
+      if (errPm) throw new AppError("Erro ao validar m\xE9todo de pagamento", 500);
+      if (!method)
+        throw new AppError("M\xE9todo de pagamento n\xE3o encontrado", 404);
+    }
+    const [errUpdate, updated] = await catchError(
+      this.recurringModel.updateRecurringTransaction(id, userId, body)
+    );
+    if (errUpdate)
+      throw new AppError("Erro ao atualizar transa\xE7\xE3o recorrente", 500);
+    if (!updated) {
+      throw new AppError("Transa\xE7\xE3o recorrente n\xE3o encontrada", 404);
+    }
+    const [errReload, reloaded] = await catchError(
+      this.recurringModel.findById(id, userId)
+    );
+    if (errReload)
+      throw new AppError(
+        "Erro ao carregar transa\xE7\xE3o recorrente atualizada",
+        500
+      );
+    return reply.send(reloaded);
+  };
+  toggleRecurringTransaction = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const { id } = request.params;
+    const [err, toggled] = await catchError(
+      this.recurringModel.toggleActive(id, userId)
+    );
+    if (err) throw new AppError("Erro ao alternar transa\xE7\xE3o recorrente", 500);
+    if (!toggled) {
+      throw new AppError("Transa\xE7\xE3o recorrente n\xE3o encontrada", 404);
+    }
+    return reply.send(toggled);
+  };
+  deleteRecurringTransaction = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const { id } = request.params;
+    const [errDelete, deleted] = await catchError(
+      this.recurringModel.softDelete(id, userId)
+    );
+    if (errDelete)
+      throw new AppError("Erro ao deletar transa\xE7\xE3o recorrente", 500);
+    if (!deleted) {
+      throw new AppError("Transa\xE7\xE3o recorrente n\xE3o encontrada", 404);
+    }
+    return reply.send({
+      message: "Transa\xE7\xE3o recorrente desativada com sucesso"
+    });
+  };
+  processRecurringTransaction = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const { id } = request.params;
+    const [errFind, recurring] = await catchError(
+      this.recurringModel.findById(id, userId)
+    );
+    if (errFind) throw new AppError("Erro ao buscar transa\xE7\xE3o recorrente", 500);
+    if (!recurring)
+      throw new AppError("Transa\xE7\xE3o recorrente n\xE3o encontrada", 404);
+    if (!recurring.isActive) {
+      throw new AppError("Transa\xE7\xE3o recorrente est\xE1 inativa", 400);
+    }
+    const now = /* @__PURE__ */ new Date();
+    const nextDate = this.calculateNextDate(recurring);
+    if (!nextDate) {
+      throw new AppError("N\xE3o h\xE1 pr\xF3xima data para gerar transa\xE7\xE3o", 400);
+    }
+    const [errCreate, transaction] = await catchError(
+      this.transactionModel.createTransaction(userId, {
+        description: recurring.description,
+        subDescription: recurring.subDescription ?? void 0,
+        amount: Number(recurring.amount),
+        type: recurring.type,
+        date: nextDate.toISOString(),
+        categoryId: recurring.categoryId ?? void 0,
+        paymentMethodId: recurring.paymentMethodId ?? void 0
+      })
+    );
+    if (errCreate) throw new AppError("Erro ao gerar transa\xE7\xE3o", 500);
+    await this.recurringModel.updateRecurringTransaction(id, userId, {
+      lastGeneratedAt: now.toISOString()
+    });
+    return reply.status(201).send(transaction);
+  };
+  calculateNextDate(recurring) {
+    const now = /* @__PURE__ */ new Date();
+    const startDate = new Date(recurring.startDate);
+    let nextDate = new Date(now);
+    if (now < startDate) {
+      nextDate = startDate;
+    } else if (recurring.lastGeneratedAt) {
+      const lastGen = new Date(recurring.lastGeneratedAt);
+      switch (recurring.frequency) {
+        case "daily":
+          nextDate = new Date(lastGen);
+          nextDate.setDate(nextDate.getDate() + 1);
+          break;
+        case "weekly":
+          nextDate = new Date(lastGen);
+          nextDate.setDate(nextDate.getDate() + 7);
+          break;
+        case "monthly":
+          nextDate = new Date(lastGen);
+          nextDate.setMonth(nextDate.getMonth() + 1);
+          break;
+        case "yearly":
+          nextDate = new Date(lastGen);
+          nextDate.setFullYear(nextDate.getFullYear() + 1);
+          break;
+        case "custom": {
+          const interval = Number.parseInt(recurring.customIntervalDays || "0", 10);
+          if (interval > 0) {
+            nextDate = new Date(lastGen);
+            nextDate.setDate(nextDate.getDate() + interval);
+          }
+          break;
+        }
+      }
+    } else {
+      nextDate = startDate;
+    }
+    if (recurring.endDate && nextDate > new Date(recurring.endDate)) {
+      return null;
+    }
+    return nextDate;
+  }
+};
+
+// src/modules/recurring/recurring.routes.ts
+async function registerRecurringRoutes(app) {
+  const controller = new RecurringTransactionController();
+  app.addHook("onRequest", async (request, reply) => {
+    try {
+      await request.jwtVerify();
+    } catch (err) {
+      reply.send(err);
+    }
+  });
+  app.get("/recurring", controller.listRecurringTransactions);
+  app.get("/recurring/:id", controller.getRecurringTransaction);
+  app.post("/recurring", controller.createRecurringTransaction);
+  app.put("/recurring/:id", controller.updateRecurringTransaction);
+  app.patch("/recurring/:id/toggle", controller.toggleRecurringTransaction);
+  app.delete("/recurring/:id", controller.deleteRecurringTransaction);
+  app.post("/recurring/:id/process", controller.processRecurringTransaction);
+}
+
+// src/modules/summary/summary.model.ts
+var import_drizzle_orm6 = require("drizzle-orm");
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -605,8 +1219,16 @@ function resolveRange(filters) {
     baseDate.setMonth(baseDate.getMonth() - 1);
   }
   const start2 = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
-  const endExclusive = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 1);
-  const previousStart = new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1);
+  const endExclusive = new Date(
+    baseDate.getFullYear(),
+    baseDate.getMonth() + 1,
+    1
+  );
+  const previousStart = new Date(
+    baseDate.getFullYear(),
+    baseDate.getMonth() - 1,
+    1
+  );
   const previousEndExclusive = start2;
   return { start: start2, endExclusive, previousStart, previousEndExclusive };
 }
@@ -614,31 +1236,31 @@ var SummaryModel = class {
   async getSummary(userId, filters = {}) {
     const range = resolveRange(filters);
     const [balanceResult] = await db.select({
-      total: import_drizzle_orm4.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE -${transactions.amount} END), 0)`
+      total: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE -${transactions.amount} END), 0)`
     }).from(transactions).where(
-      (0, import_drizzle_orm4.and)(
-        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm4.gte)(transactions.date, range.start),
-        (0, import_drizzle_orm4.lt)(transactions.date, range.endExclusive)
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(transactions.userId, userId),
+        (0, import_drizzle_orm6.gte)(transactions.date, range.start),
+        (0, import_drizzle_orm6.lt)(transactions.date, range.endExclusive)
       )
     );
     const [currentMonthTotals] = await db.select({
-      income: import_drizzle_orm4.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
-      expense: import_drizzle_orm4.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+      income: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
+      expense: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
     }).from(transactions).where(
-      (0, import_drizzle_orm4.and)(
-        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm4.gte)(transactions.date, range.start),
-        (0, import_drizzle_orm4.lt)(transactions.date, range.endExclusive)
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(transactions.userId, userId),
+        (0, import_drizzle_orm6.gte)(transactions.date, range.start),
+        (0, import_drizzle_orm6.lt)(transactions.date, range.endExclusive)
       )
     );
     const [previousMonthTotals] = await db.select({
-      expense: import_drizzle_orm4.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+      expense: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
     }).from(transactions).where(
-      (0, import_drizzle_orm4.and)(
-        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm4.gte)(transactions.date, range.previousStart),
-        (0, import_drizzle_orm4.lt)(transactions.date, range.previousEndExclusive)
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(transactions.userId, userId),
+        (0, import_drizzle_orm6.gte)(transactions.date, range.previousStart),
+        (0, import_drizzle_orm6.lt)(transactions.date, range.previousEndExclusive)
       )
     );
     const expenseChange = previousMonthTotals.expense > 0 ? (currentMonthTotals.expense - previousMonthTotals.expense) / previousMonthTotals.expense * 100 : 0;
@@ -651,15 +1273,15 @@ var SummaryModel = class {
   }
   async getMonthlySummary(userId) {
     const result = await db.select({
-      month: import_drizzle_orm4.sql`to_char(${transactions.date}, 'YYYY-MM')`,
-      income: import_drizzle_orm4.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
-      expense: import_drizzle_orm4.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+      month: import_drizzle_orm6.sql`to_char(${transactions.date}, 'YYYY-MM')`,
+      income: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
+      expense: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
     }).from(transactions).where(
-      (0, import_drizzle_orm4.and)(
-        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
-        import_drizzle_orm4.sql`${transactions.date} >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'`
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(transactions.userId, userId),
+        import_drizzle_orm6.sql`${transactions.date} >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'`
       )
-    ).groupBy(import_drizzle_orm4.sql`to_char(${transactions.date}, 'YYYY-MM')`).orderBy(import_drizzle_orm4.sql`to_char(${transactions.date}, 'YYYY-MM')`);
+    ).groupBy(import_drizzle_orm6.sql`to_char(${transactions.date}, 'YYYY-MM')`).orderBy(import_drizzle_orm6.sql`to_char(${transactions.date}, 'YYYY-MM')`);
     return result.map((r) => ({
       month: r.month,
       income: Number(r.income),
@@ -673,15 +1295,15 @@ var SummaryModel = class {
       categoryId: transactions.categoryId,
       categoryName: categories.name,
       color: categories.color,
-      total: import_drizzle_orm4.sql`SUM(${transactions.amount})`
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm4.eq)(transactions.categoryId, categories.id)).where(
-      (0, import_drizzle_orm4.and)(
-        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm4.eq)(transactions.type, "expense"),
-        (0, import_drizzle_orm4.gte)(transactions.date, range.start),
-        (0, import_drizzle_orm4.lt)(transactions.date, range.endExclusive)
+      total: import_drizzle_orm6.sql`SUM(${transactions.amount})`
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm6.eq)(transactions.categoryId, categories.id)).where(
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(transactions.userId, userId),
+        (0, import_drizzle_orm6.eq)(transactions.type, "expense"),
+        (0, import_drizzle_orm6.gte)(transactions.date, range.start),
+        (0, import_drizzle_orm6.lt)(transactions.date, range.endExclusive)
       )
-    ).groupBy(transactions.categoryId, categories.name, categories.color).orderBy((0, import_drizzle_orm4.desc)(import_drizzle_orm4.sql`SUM(${transactions.amount})`));
+    ).groupBy(transactions.categoryId, categories.name, categories.color).orderBy((0, import_drizzle_orm6.desc)(import_drizzle_orm6.sql`SUM(${transactions.amount})`));
     const totalExpense = expenses.reduce(
       (acc, curr) => acc + Number(curr.total),
       0
@@ -697,10 +1319,10 @@ var SummaryModel = class {
 };
 
 // src/modules/summary/summary.schema.ts
-var import_zod5 = require("zod");
-var summaryPeriodSchema = import_zod5.z.enum(["7d", "30d", "month", "previous"]);
-var summaryQuerySchema = import_zod5.z.object({
-  month: import_zod5.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
+var import_zod7 = require("zod");
+var summaryPeriodSchema = import_zod7.z.enum(["7d", "30d", "month", "previous"]);
+var summaryQuerySchema = import_zod7.z.object({
+  month: import_zod7.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
   period: summaryPeriodSchema.optional()
 });
 
@@ -752,142 +1374,29 @@ async function registerSummaryRoutes(app) {
   app.get("/summary/by-category", summaryController.getByCategorySummary);
 }
 
-// src/modules/transactions/transactions.model.ts
-var import_drizzle_orm5 = require("drizzle-orm");
-var TransactionModel = class {
-  async findAll(userId, filters) {
-    const startDate = filters.startDate ? new Date(filters.startDate) : void 0;
-    const endDate = filters.endDate ? new Date(filters.endDate) : void 0;
-    const query = db.select({
-      id: transactions.id,
-      description: transactions.description,
-      subDescription: transactions.subDescription,
-      amount: transactions.amount,
-      type: transactions.type,
-      date: transactions.date,
-      categoryId: transactions.categoryId,
-      category: {
-        id: categories.id,
-        name: categories.name,
-        color: categories.color,
-        icon: categories.icon
-      },
-      paymentMethodId: transactions.paymentMethodId,
-      paymentMethod: {
-        id: paymentMethods.id,
-        name: paymentMethods.name
-      },
-      createdAt: transactions.createdAt
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm5.eq)(transactions.categoryId, categories.id)).leftJoin(
-      paymentMethods,
-      (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, paymentMethods.id)
-    ).where(
-      (0, import_drizzle_orm5.and)(
-        (0, import_drizzle_orm5.eq)(transactions.userId, userId),
-        filters.type ? (0, import_drizzle_orm5.eq)(transactions.type, filters.type) : void 0,
-        filters.categoryId ? (0, import_drizzle_orm5.eq)(transactions.categoryId, filters.categoryId) : void 0,
-        filters.paymentMethodId ? (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
-        filters.month ? import_drizzle_orm5.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
-        startDate ? (0, import_drizzle_orm5.gte)(transactions.date, startDate) : void 0,
-        endDate ? (0, import_drizzle_orm5.lte)(transactions.date, endDate) : void 0
-      )
-    ).orderBy((0, import_drizzle_orm5.desc)(transactions.date), (0, import_drizzle_orm5.desc)(transactions.createdAt)).limit(filters.limit).offset((filters.page - 1) * filters.limit);
-    const countQuery = db.select({ count: (0, import_drizzle_orm5.count)() }).from(transactions).where(
-      (0, import_drizzle_orm5.and)(
-        (0, import_drizzle_orm5.eq)(transactions.userId, userId),
-        filters.type ? (0, import_drizzle_orm5.eq)(transactions.type, filters.type) : void 0,
-        filters.categoryId ? (0, import_drizzle_orm5.eq)(transactions.categoryId, filters.categoryId) : void 0,
-        filters.paymentMethodId ? (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
-        filters.month ? import_drizzle_orm5.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
-        startDate ? (0, import_drizzle_orm5.gte)(transactions.date, startDate) : void 0,
-        endDate ? (0, import_drizzle_orm5.lte)(transactions.date, endDate) : void 0
-      )
-    );
-    const [data, [{ count: totalSize }]] = await Promise.all([
-      query,
-      countQuery
-    ]);
-    return {
-      data,
-      total: Number(totalSize)
-    };
-  }
-  async findById(id, userId) {
-    const [transaction] = await db.select({
-      id: transactions.id,
-      description: transactions.description,
-      subDescription: transactions.subDescription,
-      amount: transactions.amount,
-      type: transactions.type,
-      date: transactions.date,
-      categoryId: transactions.categoryId,
-      category: {
-        id: categories.id,
-        name: categories.name,
-        color: categories.color,
-        icon: categories.icon
-      },
-      paymentMethodId: transactions.paymentMethodId,
-      paymentMethod: {
-        id: paymentMethods.id,
-        name: paymentMethods.name
-      },
-      createdAt: transactions.createdAt
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm5.eq)(transactions.categoryId, categories.id)).leftJoin(
-      paymentMethods,
-      (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, paymentMethods.id)
-    ).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(transactions.id, id), (0, import_drizzle_orm5.eq)(transactions.userId, userId))).limit(1);
-    return transaction;
-  }
-  async createTransaction(userId, data) {
-    const [transaction] = await db.insert(transactions).values({
-      userId,
-      description: data.description,
-      subDescription: data.subDescription,
-      amount: data.amount.toString(),
-      type: data.type,
-      date: new Date(data.date),
-      categoryId: data.categoryId,
-      paymentMethodId: data.paymentMethodId
-    }).returning();
-    return transaction;
-  }
-  async updateTransaction(id, userId, data) {
-    const updateData = { ...data };
-    if (data.date) updateData.date = new Date(data.date);
-    if (data.amount) updateData.amount = data.amount.toString();
-    const [updated] = await db.update(transactions).set(updateData).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(transactions.id, id), (0, import_drizzle_orm5.eq)(transactions.userId, userId))).returning();
-    return updated;
-  }
-  async deleteTransaction(id, userId) {
-    const [deleted] = await db.delete(transactions).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(transactions.id, id), (0, import_drizzle_orm5.eq)(transactions.userId, userId))).returning();
-    return deleted;
-  }
-};
-
 // src/modules/transactions/transactions.schema.ts
-var import_zod6 = require("zod");
-var createTransactionSchema = import_zod6.z.object({
-  description: import_zod6.z.string().min(1, "Descri\xE7\xE3o \xE9 obrigat\xF3ria").max(120),
-  subDescription: import_zod6.z.string().max(120).optional(),
-  amount: import_zod6.z.number().positive("O valor deve ser positivo"),
-  type: import_zod6.z.enum(["income", "expense"], {
+var import_zod8 = require("zod");
+var createTransactionSchema = import_zod8.z.object({
+  description: import_zod8.z.string().min(1, "Descri\xE7\xE3o \xE9 obrigat\xF3ria").max(120),
+  subDescription: import_zod8.z.string().max(120).optional(),
+  amount: import_zod8.z.number().positive("O valor deve ser positivo"),
+  type: import_zod8.z.enum(["income", "expense"], {
     errorMap: () => ({ message: "O tipo deve ser income ou expense" })
   }),
-  date: import_zod6.z.string().datetime({ message: "A data deve ser ISO 8601 v\xE1lida" }),
-  categoryId: import_zod6.z.string().uuid("ID de categoria inv\xE1lido").optional(),
-  paymentMethodId: import_zod6.z.string().uuid("ID de m\xE9todo de pagamento inv\xE1lido").optional()
+  date: import_zod8.z.string().datetime({ message: "A data deve ser ISO 8601 v\xE1lida" }),
+  categoryId: import_zod8.z.string().uuid("ID de categoria inv\xE1lido").optional(),
+  paymentMethodId: import_zod8.z.string().uuid("ID de m\xE9todo de pagamento inv\xE1lido").optional()
 });
 var updateTransactionSchema = createTransactionSchema.partial();
-var listTransactionsSchema = import_zod6.z.object({
-  month: import_zod6.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
-  type: import_zod6.z.enum(["income", "expense"]).optional(),
-  categoryId: import_zod6.z.string().uuid().optional(),
-  paymentMethodId: import_zod6.z.string().uuid().optional(),
-  startDate: import_zod6.z.string().datetime({ message: "startDate deve ser ISO 8601 v\xE1lida" }).optional(),
-  endDate: import_zod6.z.string().datetime({ message: "endDate deve ser ISO 8601 v\xE1lida" }).optional(),
-  page: import_zod6.z.coerce.number().min(1).default(1),
-  limit: import_zod6.z.coerce.number().min(1).max(100).default(10)
+var listTransactionsSchema = import_zod8.z.object({
+  month: import_zod8.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
+  type: import_zod8.z.enum(["income", "expense"]).optional(),
+  categoryId: import_zod8.z.string().uuid().optional(),
+  paymentMethodId: import_zod8.z.string().uuid().optional(),
+  startDate: import_zod8.z.string().datetime({ message: "startDate deve ser ISO 8601 v\xE1lida" }).optional(),
+  endDate: import_zod8.z.string().datetime({ message: "endDate deve ser ISO 8601 v\xE1lida" }).optional(),
+  page: import_zod8.z.coerce.number().min(1).default(1),
+  limit: import_zod8.z.coerce.number().min(1).max(100).default(10)
 });
 
 // src/modules/transactions/transactions.controller.ts
@@ -933,7 +1442,8 @@ var TransactionsController = class {
         this.paymentMethodModel.findById(body.paymentMethodId, userId)
       );
       if (errPm) throw new AppError("Erro ao validar m\xE9todo de pagamento", 500);
-      if (!method) throw new AppError("M\xE9todo de pagamento n\xE3o encontrado", 404);
+      if (!method)
+        throw new AppError("M\xE9todo de pagamento n\xE3o encontrado", 404);
     }
     const [errCreate, transaction] = await catchError(
       this.transactionModel.createTransaction(userId, body)
@@ -957,7 +1467,8 @@ var TransactionsController = class {
         this.paymentMethodModel.findById(body.paymentMethodId, userId)
       );
       if (errPm) throw new AppError("Erro ao validar m\xE9todo de pagamento", 500);
-      if (!method) throw new AppError("M\xE9todo de pagamento n\xE3o encontrado", 404);
+      if (!method)
+        throw new AppError("M\xE9todo de pagamento n\xE3o encontrado", 404);
     }
     const [errUpdate, updated] = await catchError(
       this.transactionModel.updateTransaction(id, userId, body)
@@ -1013,14 +1524,272 @@ async function registerRoutes(app) {
   await app.register(registerAuthRoutes);
   await app.register(registerCategoriesRoutes);
   await app.register(registerPaymentMethodsRoutes);
+  await app.register(registerRecurringRoutes);
   await app.register(registerTransactionsRoutes);
   await app.register(registerSummaryRoutes);
 }
 
+// src/modules/seed/dashboard.export.model.ts
+var import_drizzle_orm7 = require("drizzle-orm");
+var import_exceljs = __toESM(require("exceljs"), 1);
+var import_pdfkit = __toESM(require("pdfkit"), 1);
+var DashboardExportModel = class {
+  async getTransactionsForExport(userId, filters) {
+    const startDate = filters.startDate ? new Date(filters.startDate) : void 0;
+    const endDate = filters.endDate ? new Date(filters.endDate) : void 0;
+    const rows = await db.select({
+      date: transactions.date,
+      description: transactions.description,
+      category: categories.name,
+      paymentMethod: paymentMethods.name,
+      type: transactions.type,
+      amount: transactions.amount
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm7.eq)(transactions.categoryId, categories.id)).leftJoin(
+      paymentMethods,
+      (0, import_drizzle_orm7.eq)(transactions.paymentMethodId, paymentMethods.id)
+    ).where(
+      (0, import_drizzle_orm7.and)(
+        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm7.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm7.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        startDate ? (0, import_drizzle_orm7.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm7.lte)(transactions.date, endDate) : void 0
+      )
+    ).orderBy((0, import_drizzle_orm7.desc)(transactions.date));
+    return rows.map((row) => ({
+      date: row.date.toLocaleDateString("pt-BR"),
+      description: row.description,
+      category: row.category || "-",
+      type: row.type === "income" ? "Receita" : "Despesa",
+      total: Number(row.amount).toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL"
+      })
+    }));
+  }
+  async exportToExcel(userId, filters) {
+    const startDate = filters.startDate ? new Date(filters.startDate) : void 0;
+    const endDate = filters.endDate ? new Date(filters.endDate) : void 0;
+    const rows = await db.select({
+      date: transactions.date,
+      description: transactions.description,
+      category: categories.name,
+      paymentMethod: paymentMethods.name,
+      type: transactions.type,
+      amount: transactions.amount
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm7.eq)(transactions.categoryId, categories.id)).leftJoin(
+      paymentMethods,
+      (0, import_drizzle_orm7.eq)(transactions.paymentMethodId, paymentMethods.id)
+    ).where(
+      (0, import_drizzle_orm7.and)(
+        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm7.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm7.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        startDate ? (0, import_drizzle_orm7.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm7.lte)(transactions.date, endDate) : void 0
+      )
+    ).orderBy((0, import_drizzle_orm7.desc)(transactions.date));
+    const data = rows.map((row) => ({
+      valor: Number(row.amount).toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL"
+      }),
+      descricao: row.description,
+      categoria: row.category || "-",
+      metodoPagamento: row.paymentMethod || "-",
+      tipo: row.type === "income" ? "Receita" : "Despesa",
+      data: row.date.toLocaleDateString("pt-BR"),
+      total: Number(row.amount)
+    }));
+    const wb = new import_exceljs.default.Workbook();
+    const ws = wb.addWorksheet("Transa\xE7\xF5es");
+    ws.columns = [
+      { header: "Data", key: "data", width: 12 },
+      { header: "Descri\xE7\xE3o", key: "descricao", width: 35 },
+      { header: "Categoria", key: "categoria", width: 15 },
+      { header: "M\xE9todo", key: "metodoPagamento", width: 15 },
+      { header: "Tipo", key: "tipo", width: 10 },
+      { header: "Valor (R$)", key: "valor", width: 14 }
+    ];
+    const headerRow = ws.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF2D5FF3" }
+    };
+    headerRow.alignment = { horizontal: "center" };
+    data.forEach((row, idx) => {
+      const rowIndex = idx + 2;
+      ws.addRow(row);
+      const addedRow = ws.getRow(rowIndex);
+      addedRow.alignment = { vertical: "middle", horizontal: "left" };
+    });
+    ws.eachRow((row) => {
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: "thin" },
+          left: { style: "thin" },
+          bottom: { style: "thin" },
+          right: { style: "thin" }
+        };
+      });
+    });
+    const buffer = await wb.xlsx.writeBuffer();
+    return Buffer.from(buffer);
+  }
+  async exportToPdf(userId, filters) {
+    const rows = await this.getTransactionsForExport(userId, filters);
+    return new Promise((resolve, reject) => {
+      try {
+        const doc = new import_pdfkit.default({ size: "A4", margin: 50 });
+        const chunks = [];
+        doc.on("data", (chunk) => chunks.push(chunk));
+        doc.on("end", () => resolve(Buffer.concat(chunks)));
+        doc.fontSize(18).text("Relat\xF3rio de Transa\xE7\xF5es", { align: "center" });
+        doc.moveDown(2);
+        const startX = 50;
+        const rowY = 120;
+        const colWidths = [70, 180, 80, 80];
+        doc.rect(startX, rowY - 10, 520, 22).fill("#1A2035");
+        doc.fillColor("#FFFFFF").fontSize(10);
+        doc.text("Data", startX + 5, rowY - 6, { width: colWidths[0] });
+        doc.text("Descri\xE7\xE3o", startX + colWidths[0] + 5, rowY - 6, {
+          width: colWidths[1]
+        });
+        doc.text(
+          "Categoria",
+          startX + colWidths[0] + colWidths[1] + 10,
+          rowY - 6,
+          {
+            width: colWidths[2]
+          }
+        );
+        doc.text(
+          "Valor",
+          startX + colWidths[0] + colWidths[1] + colWidths[2] + 15,
+          rowY - 6,
+          {
+            width: colWidths[3],
+            align: "right"
+          }
+        );
+        let y = rowY + 20;
+        for (const r of rows.slice(0, 25)) {
+          doc.fillColor("#000000").fontSize(9);
+          doc.text(r.date, startX, y, { width: colWidths[0] });
+          doc.text(r.description, startX + colWidths[0] + 5, y, {
+            width: colWidths[1]
+          });
+          doc.text(r.category, startX + colWidths[0] + colWidths[1] + 10, y, {
+            width: colWidths[2]
+          });
+          doc.text(
+            r.total,
+            startX + colWidths[0] + colWidths[1] + colWidths[2] + 15,
+            y,
+            {
+              width: colWidths[3],
+              align: "right"
+            }
+          );
+          y += 16;
+        }
+        doc.end();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+};
+var dashboard_export_model_default = new DashboardExportModel();
+
+// src/modules/seed/dashboard.export.schema.ts
+var import_zod9 = require("zod");
+var exportFilterSchema = import_zod9.z.object({
+  startDate: import_zod9.z.string().datetime({ message: "Data inicial deve ser ISO 8601 v\xE1lida" }).optional(),
+  endDate: import_zod9.z.string().datetime({ message: "Data final deve ser ISO 8601 v\xE1lida" }).optional(),
+  type: import_zod9.z.enum(["income", "expense"]).optional(),
+  categoryId: import_zod9.z.string().uuid().optional()
+});
+
+// src/modules/seed/dashboard.seed.controller.ts
+var DashboardSeedController = class {
+  async importFromExcel(req, reply) {
+    const payload = req.body || {};
+    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+    reply.status(501).send({ ok: false, message: "Not implemented yet" });
+  }
+  async exportExcel(req, reply) {
+    try {
+      await req.jwtVerify();
+    } catch {
+      throw new AppError("Unauthorized", 401);
+    }
+    const userId = req.user.sub;
+    const filters = exportFilterSchema.parse(req.query);
+    const buffer = await dashboard_export_model_default.exportToExcel(userId, filters);
+    reply.type(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    reply.header(
+      "Content-Disposition",
+      'attachment; filename="transacoes.xlsx"'
+    );
+    return reply.send(buffer);
+  }
+  async exportPdf(req, reply) {
+    try {
+      await req.jwtVerify();
+    } catch {
+      throw new AppError("Unauthorized", 401);
+    }
+    const userId = req.user.sub;
+    const filters = exportFilterSchema.parse(req.query);
+    const buffer = await dashboard_export_model_default.exportToPdf(userId, filters);
+    reply.type("application/pdf");
+    reply.header(
+      "Content-Disposition",
+      'attachment; filename="transacoes.pdf"'
+    );
+    return reply.send(buffer);
+  }
+};
+var dashboard_seed_controller_default = new DashboardSeedController();
+
+// src/modules/seed/dashboard.seed.routes.ts
+async function registerSeedDashboardRoutes(app) {
+  app.post(
+    "/seed/dashboard/import",
+    dashboard_seed_controller_default.importFromExcel.bind(dashboard_seed_controller_default)
+  );
+  app.get(
+    "/seed/dashboard/export/excel",
+    dashboard_seed_controller_default.exportExcel.bind(dashboard_seed_controller_default)
+  );
+  app.get(
+    "/seed/dashboard/export/pdf",
+    dashboard_seed_controller_default.exportPdf.bind(dashboard_seed_controller_default)
+  );
+}
+
 // src/config/app.ts
 async function buildApp() {
-  const app = (0, import_fastify.default)({ logger: true });
-  await app.register(import_cors.default, { origin: env.CORS_ORIGIN });
+  const isTest = process.env.NODE_ENV === "test";
+  const app = (0, import_fastify.default)({
+    logger: isTest ? false : {
+      transport: {
+        target: "pino-pretty",
+        options: {
+          translateTime: "HH:MM:ss",
+          ignore: "pid,hostname",
+          colorize: true
+        }
+      }
+    }
+  });
+  await app.register(import_cookie.default);
+  await app.register(import_cors.default, { origin: env.CORS_ORIGIN, credentials: true });
   await app.register(import_jwt.default, { secret: env.JWT_SECRET });
   await app.register(import_swagger.default, {
     openapi: {
@@ -1041,6 +1810,7 @@ async function buildApp() {
     routePrefix: "/docs"
   });
   await registerRoutes(app);
+  await registerSeedDashboardRoutes(app);
   app.setErrorHandler(errorHandler);
   return app;
 }

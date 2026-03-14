@@ -49,6 +49,7 @@ export class RecurringTransactionModel {
 					name: paymentMethods.name,
 				},
 				frequency: recurringTransactions.frequency,
+				customIntervalDays: recurringTransactions.customIntervalDays,
 				dayOfMonth: recurringTransactions.dayOfMonth,
 				dayOfWeek: recurringTransactions.dayOfWeek,
 				startDate: recurringTransactions.startDate,
@@ -88,6 +89,7 @@ export class RecurringTransactionModel {
 					name: paymentMethods.name,
 				},
 				frequency: recurringTransactions.frequency,
+				customIntervalDays: recurringTransactions.customIntervalDays,
 				dayOfMonth: recurringTransactions.dayOfMonth,
 				dayOfWeek: recurringTransactions.dayOfWeek,
 				startDate: recurringTransactions.startDate,
@@ -127,6 +129,7 @@ export class RecurringTransactionModel {
 				categoryId: data.categoryId,
 				paymentMethodId: data.paymentMethodId,
 				frequency: data.frequency,
+				customIntervalDays: data.customIntervalDays?.toString(),
 				dayOfMonth: data.dayOfMonth.toString(),
 				dayOfWeek: data.dayOfWeek?.toString(),
 				startDate: new Date(data.startDate),
@@ -154,6 +157,10 @@ export class RecurringTransactionModel {
 
 		if (data.dayOfWeek !== undefined) {
 			updateData.dayOfWeek = data.dayOfWeek.toString();
+		}
+
+		if (data.customIntervalDays !== undefined) {
+			updateData.customIntervalDays = data.customIntervalDays.toString();
 		}
 
 		if (data.startDate !== undefined) {
