@@ -87,7 +87,7 @@ export class AuthController {
 		}
 
 		return reply.send({ user });
-	};		
+	};
 
 	logout = async (_request: FastifyRequest, reply: FastifyReply) => {
 		reply.clearCookie("token", { path: "/" });

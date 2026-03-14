@@ -27,12 +27,15 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // src/config/app.ts
-var import_cors = __toESM(require("@fastify/cors"), 1);
 var import_cookie = __toESM(require("@fastify/cookie"), 1);
+var import_cors = __toESM(require("@fastify/cors"), 1);
 var import_jwt = __toESM(require("@fastify/jwt"), 1);
 var import_swagger = __toESM(require("@fastify/swagger"), 1);
 var import_swagger_ui = __toESM(require("@fastify/swagger-ui"), 1);
 var import_fastify = __toESM(require("fastify"), 1);
+
+// src/errors/errorHandler.ts
+var import_zod = require("zod");
 
 // src/errors/AppError.ts
 var AppError = class extends Error {
@@ -45,7 +48,6 @@ var AppError = class extends Error {
 };
 
 // src/errors/errorHandler.ts
-var import_zod = require("zod");
 var isDevelopment = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
 var errorMessages = {
   DEFAULT: "Algo deu errado. Tente novamente mais tarde.",
@@ -110,6 +112,15 @@ async function errorHandler(error, _request, reply) {
   });
 }
 
+// src/modules/seed/dashboard.export.model.ts
+var import_drizzle_orm = require("drizzle-orm");
+var import_exceljs = __toESM(require("exceljs"), 1);
+var import_pdfkit = __toESM(require("pdfkit"), 1);
+
+// src/drizzle/client.ts
+var import_postgres_js = require("drizzle-orm/postgres-js");
+var import_postgres = __toESM(require("postgres"), 1);
+
 // src/settings/env.ts
 var import_zod2 = require("zod");
 var envSchema = import_zod2.z.object({
@@ -119,25 +130,6 @@ var envSchema = import_zod2.z.object({
   CORS_ORIGIN: import_zod2.z.string().default("*")
 });
 var env = envSchema.parse(process.env);
-
-// src/utils/catchError.ts
-async function catchError(promise) {
-  try {
-    const result = await promise;
-    return [null, result];
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    return [error, null];
-  }
-}
-
-// src/modules/auth/auth.model.ts
-var import_bcryptjs = __toESM(require("bcryptjs"), 1);
-var import_drizzle_orm = require("drizzle-orm");
-
-// src/drizzle/client.ts
-var import_postgres_js = require("drizzle-orm/postgres-js");
-var import_postgres = __toESM(require("postgres"), 1);
 
 // src/drizzle/schema.ts
 var schema_exports = {};
@@ -224,11 +216,905 @@ var recurringTransactions = (0, import_pg_core.pgTable)("recurring_transactions"
 var client = (0, import_postgres.default)(env.DATABASE_URL);
 var db = (0, import_postgres_js.drizzle)(client, { schema: schema_exports });
 
+// src/modules/seed/dashboard.export.model.ts
+var DEFAULT_COLOR = "FF607D8B";
+var DashboardExportModel = class {
+  getDateRange(filters) {
+    const startDate = filters.startDate ? /* @__PURE__ */ new Date(`${filters.startDate}T00:00:00`) : void 0;
+    const endDate = filters.endDate ? /* @__PURE__ */ new Date(`${filters.endDate}T23:59:59`) : void 0;
+    return { startDate, endDate };
+  }
+  async getCategoryColors(userId) {
+    const userCategories = await db.select({
+      name: categories.name,
+      color: categories.color
+    }).from(categories).where((0, import_drizzle_orm.eq)(categories.userId, userId));
+    const colorMap = /* @__PURE__ */ new Map();
+    for (const cat of userCategories) {
+      const hexColor = cat.color.replace("#", "");
+      colorMap.set(cat.name, `FF${hexColor.toUpperCase()}`);
+    }
+    return colorMap;
+  }
+  async getTransactions(userId, filters) {
+    const { startDate, endDate } = this.getDateRange(filters);
+    const rows = await db.select({
+      date: transactions.date,
+      description: transactions.description,
+      category: categories.name,
+      categoryId: transactions.categoryId,
+      categoryColor: categories.color,
+      paymentMethod: paymentMethods.name,
+      type: transactions.type,
+      amount: transactions.amount
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm.eq)(transactions.categoryId, categories.id)).leftJoin(
+      paymentMethods,
+      (0, import_drizzle_orm.eq)(transactions.paymentMethodId, paymentMethods.id)
+    ).where(
+      (0, import_drizzle_orm.and)(
+        (0, import_drizzle_orm.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        startDate ? (0, import_drizzle_orm.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm.lte)(transactions.date, endDate) : void 0
+      )
+    ).orderBy((0, import_drizzle_orm.desc)(transactions.date));
+    return rows;
+  }
+  async getSummary(userId, filters) {
+    const rawTransactions = await this.getTransactions(userId, filters);
+    const categoryColors = await this.getCategoryColors(userId);
+    const transactionsData = rawTransactions.map((row) => {
+      const categoryName = row.category || "Sem Categoria";
+      const categoryColor = row.categoryColor ? `FF${row.categoryColor.replace("#", "").toUpperCase()}` : categoryColors.get(categoryName) || DEFAULT_COLOR;
+      return {
+        date: row.date.toISOString(),
+        description: row.description,
+        category: categoryName,
+        categoryColor,
+        paymentMethod: row.paymentMethod || "-",
+        type: row.type,
+        amount: Number(row.amount)
+      };
+    });
+    const totalIncome = transactionsData.filter((t) => t.type === "income").reduce((sum, t) => sum + t.amount, 0);
+    const totalExpense = transactionsData.filter((t) => t.type === "expense").reduce((sum, t) => sum + t.amount, 0);
+    const categoryMap = /* @__PURE__ */ new Map();
+    for (const t of transactionsData) {
+      if (t.type === "expense") {
+        const current = categoryMap.get(t.category) || {
+          total: 0,
+          color: DEFAULT_COLOR
+        };
+        categoryMap.set(t.category, {
+          total: current.total + t.amount,
+          color: t.categoryColor || current.color
+        });
+      }
+    }
+    const byCategory = Array.from(categoryMap.entries()).map(([category, data]) => ({
+      category,
+      categoryColor: data.color,
+      total: data.total,
+      percentage: totalExpense > 0 ? data.total / totalExpense * 100 : 0
+    })).sort((a, b) => b.total - a.total);
+    const monthlyMap = /* @__PURE__ */ new Map();
+    for (const t of transactionsData) {
+      const monthKey = t.date.slice(0, 7);
+      const current = monthlyMap.get(monthKey) || { income: 0, expense: 0 };
+      if (t.type === "income") {
+        current.income += t.amount;
+      } else {
+        current.expense += t.amount;
+      }
+      monthlyMap.set(monthKey, current);
+    }
+    const byMonth = Array.from(monthlyMap.entries()).map(([month, data]) => ({
+      month,
+      income: data.income,
+      expense: data.expense,
+      balance: data.income - data.expense
+    })).sort((a, b) => a.month.localeCompare(b.month));
+    return {
+      totalIncome,
+      totalExpense,
+      balance: totalIncome - totalExpense,
+      byCategory,
+      byMonth,
+      transactionCount: transactionsData.length
+    };
+  }
+  formatCurrency(value) {
+    return value.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    });
+  }
+  formatDate(dateString) {
+    return new Date(dateString).toLocaleDateString("pt-BR");
+  }
+  escapeCsvField(field) {
+    if (field.includes(";") || field.includes('"') || field.includes("\n")) {
+      return `"${field.replace(/"/g, '""')}"`;
+    }
+    return field;
+  }
+  async exportToCsv(userId, filters) {
+    const rawTransactions = await this.getTransactions(userId, filters);
+    const summary = await this.getSummary(userId, filters);
+    const lines = [];
+    lines.push("RELAT\xD3RIO FINANCEIRO");
+    lines.push("");
+    lines.push("RESUMO GERAL");
+    lines.push(`Total de Receitas;${this.formatCurrency(summary.totalIncome)}`);
+    lines.push(
+      `Total de Despesas;${this.formatCurrency(summary.totalExpense)}`
+    );
+    lines.push(`Saldo;${this.formatCurrency(summary.balance)}`);
+    lines.push(`Total de Transa\xE7\xF5es;${summary.transactionCount}`);
+    lines.push("");
+    lines.push("");
+    lines.push("GASTOS POR CATEGORIA");
+    lines.push("Categoria;Valor;Percentual");
+    for (const cat of summary.byCategory) {
+      lines.push(
+        `${cat.category};${this.formatCurrency(cat.total)};${cat.percentage.toFixed(1)}%`
+      );
+    }
+    lines.push("");
+    lines.push("");
+    lines.push("RESUMO MENSAL");
+    lines.push("M\xEAs;Receitas;Despesas;Saldo");
+    for (const m of summary.byMonth) {
+      lines.push(
+        `${m.month};${this.formatCurrency(m.income)};${this.formatCurrency(m.expense)};${this.formatCurrency(m.balance)}`
+      );
+    }
+    lines.push("");
+    lines.push("");
+    lines.push("TRANSA\xC7\xD5ES");
+    lines.push("Data;Descri\xE7\xE3o;Categoria;M\xE9todo de Pagamento;Tipo;Valor");
+    for (const row of rawTransactions) {
+      lines.push(
+        `${this.formatDate(row.date.toISOString())};${this.escapeCsvField(row.description)};${row.category || "-"};${row.paymentMethod || "-"};${row.type === "income" ? "Receita" : "Despesa"};${this.formatCurrency(Number(row.amount))}`
+      );
+    }
+    const bom = "\uFEFF";
+    return bom + lines.join("\r\n");
+  }
+  async exportToExcel(userId, filters) {
+    const rawTransactions = await this.getTransactions(userId, filters);
+    const summary = await this.getSummary(userId, filters);
+    const transactionsData = rawTransactions.map((row) => {
+      const categoryName = row.category || "Sem Categoria";
+      const categoryColor = row.categoryColor ? `FF${row.categoryColor.replace("#", "").toUpperCase()}` : DEFAULT_COLOR;
+      return {
+        date: row.date.toISOString(),
+        description: row.description,
+        category: categoryName,
+        categoryColor,
+        paymentMethod: row.paymentMethod || "-",
+        type: row.type,
+        amount: Number(row.amount)
+      };
+    });
+    const wb = new import_exceljs.default.Workbook();
+    wb.creator = "FinanceApp";
+    wb.created = /* @__PURE__ */ new Date();
+    this.createDashboardSheet(wb, summary);
+    this.createTransactionsSheet(wb, transactionsData);
+    this.createCategorySheet(wb, summary.byCategory);
+    this.createMonthlySheet(wb, summary.byMonth);
+    const buffer = await wb.xlsx.writeBuffer();
+    return Buffer.from(buffer);
+  }
+  createDashboardSheet(wb, summary) {
+    const ws = wb.addWorksheet("Dashboard", {
+      properties: { tabColor: { argb: "FF2D5FF3" } }
+    });
+    ws.mergeCells("A1:F1");
+    ws.getCell("A1").value = "RELAT\xD3RIO FINANCEIRO";
+    ws.getCell("A1").font = {
+      bold: true,
+      size: 16,
+      color: { argb: "FFFFFFFF" }
+    };
+    ws.getCell("A1").fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF2D5FF3" }
+    };
+    ws.getCell("A1").alignment = { horizontal: "center", vertical: "middle" };
+    ws.getRow(1).height = 30;
+    ws.mergeCells("A3:B3");
+    ws.getCell("A3").value = "RESUMO GERAL";
+    ws.getCell("A3").font = {
+      bold: true,
+      size: 14,
+      color: { argb: "FF1A2035" }
+    };
+    const summaryBoxes = [
+      {
+        label: "Receitas",
+        value: summary.totalIncome,
+        row: 4,
+        col: "A",
+        color: "FF4CAF50"
+      },
+      {
+        label: "Despesas",
+        value: summary.totalExpense,
+        row: 4,
+        col: "C",
+        color: "FFF44336"
+      },
+      {
+        label: "Saldo",
+        value: summary.balance,
+        row: 4,
+        col: "E",
+        color: summary.balance >= 0 ? "FF4CAF50" : "FFF44336"
+      }
+    ];
+    for (const box of summaryBoxes) {
+      const cellRef = `${box.col}${box.row}`;
+      ws.getCell(cellRef).value = box.label;
+      ws.getCell(cellRef).font = { bold: true, size: 11 };
+      ws.getCell(cellRef).alignment = { horizontal: "center" };
+      ws.getCell(cellRef).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: box.color }
+      };
+      const valueRef = `${box.col}${box.row + 1}`;
+      ws.getCell(valueRef).value = this.formatCurrency(box.value);
+      ws.getCell(valueRef).font = { bold: true, size: 14 };
+      ws.getCell(valueRef).alignment = { horizontal: "center" };
+      ws.getCell(valueRef).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFF5F5F5" }
+      };
+      ws.getCell(cellRef).border = {
+        top: { style: "thin", color: { argb: "FFDDDDDD" } },
+        left: { style: "thin", color: { argb: "FFDDDDDD" } },
+        bottom: { style: "thin", color: { argb: "FFDDDDDD" } },
+        right: { style: "thin", color: { argb: "FFDDDDDD" } }
+      };
+      ws.getCell(valueRef).border = {
+        top: { style: "thin", color: { argb: "FFDDDDDD" } },
+        left: { style: "thin", color: { argb: "FFDDDDDD" } },
+        bottom: { style: "thin", color: { argb: "FFDDDDDD" } },
+        right: { style: "thin", color: { argb: "FFDDDDDD" } }
+      };
+    }
+    ws.getColumn("A").width = 18;
+    ws.getColumn("B").width = 10;
+    ws.getColumn("C").width = 18;
+    ws.getColumn("D").width = 10;
+    ws.getColumn("E").width = 18;
+    ws.getColumn("F").width = 10;
+    const catStartRow = 8;
+    ws.mergeCells(`A${catStartRow}:C${catStartRow}`);
+    ws.getCell(`A${catStartRow}`).value = "GASTOS POR CATEGORIA";
+    ws.getCell(`A${catStartRow}`).font = {
+      bold: true,
+      size: 12,
+      color: { argb: "FF1A2035" }
+    };
+    const catHeaders = ["Categoria", "Valor", "%"];
+    catHeaders.forEach((header, idx) => {
+      const cell = ws.getCell(
+        `${String.fromCharCode(65 + idx)}${catStartRow + 1}`
+      );
+      cell.value = header;
+      cell.font = { bold: true };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFE0E0E0" }
+      };
+      cell.alignment = { horizontal: "center" };
+      cell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" }
+      };
+    });
+    summary.byCategory.forEach((cat, idx) => {
+      const rowNum = catStartRow + 2 + idx;
+      const catCell = ws.getCell(`A${rowNum}`);
+      catCell.value = cat.category;
+      catCell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: cat.categoryColor }
+      };
+      catCell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" }
+      };
+      const valueCell = ws.getCell(`B${rowNum}`);
+      valueCell.value = cat.total;
+      valueCell.numFmt = "R$ #,##0.00";
+      valueCell.alignment = { horizontal: "right" };
+      valueCell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" }
+      };
+      const pctCell = ws.getCell(`C${rowNum}`);
+      pctCell.value = cat.percentage / 100;
+      pctCell.numFmt = "0.0%";
+      pctCell.alignment = { horizontal: "center" };
+      pctCell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" }
+      };
+    });
+    const monthStartRow = catStartRow + summary.byCategory.length + 4;
+    ws.mergeCells(`A${monthStartRow}:D${monthStartRow}`);
+    ws.getCell(`A${monthStartRow}`).value = "RESUMO MENSAL";
+    ws.getCell(`A${monthStartRow}`).font = {
+      bold: true,
+      size: 12,
+      color: { argb: "FF1A2035" }
+    };
+    const monthHeaders = ["M\xEAs", "Receitas", "Despesas", "Saldo"];
+    monthHeaders.forEach((header, idx) => {
+      const cell = ws.getCell(
+        `${String.fromCharCode(65 + idx)}${monthStartRow + 1}`
+      );
+      cell.value = header;
+      cell.font = { bold: true };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFE0E0E0" }
+      };
+      cell.alignment = { horizontal: "center" };
+      cell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" }
+      };
+    });
+    summary.byMonth.forEach((m, idx) => {
+      const rowNum = monthStartRow + 2 + idx;
+      const monthCell = ws.getCell(`A${rowNum}`);
+      monthCell.value = m.month;
+      monthCell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" }
+      };
+      const incomeCell = ws.getCell(`B${rowNum}`);
+      incomeCell.value = m.income;
+      incomeCell.numFmt = "R$ #,##0.00";
+      incomeCell.font = { color: { argb: "FF4CAF50" } };
+      incomeCell.alignment = { horizontal: "right" };
+      incomeCell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" }
+      };
+      const expenseCell = ws.getCell(`C${rowNum}`);
+      expenseCell.value = m.expense;
+      expenseCell.numFmt = "R$ #,##0.00";
+      expenseCell.font = { color: { argb: "FFF44336" } };
+      expenseCell.alignment = { horizontal: "right" };
+      expenseCell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" }
+      };
+      const balanceCell = ws.getCell(`D${rowNum}`);
+      balanceCell.value = m.balance;
+      balanceCell.numFmt = "R$ #,##0.00";
+      balanceCell.font = {
+        color: { argb: m.balance >= 0 ? "FF4CAF50" : "FFF44336" },
+        bold: true
+      };
+      balanceCell.alignment = { horizontal: "right" };
+      balanceCell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" }
+      };
+    });
+  }
+  createTransactionsSheet(wb, transactions2) {
+    const ws = wb.addWorksheet("Transa\xE7\xF5es", {
+      properties: { tabColor: { argb: "FF4CAF50" } }
+    });
+    ws.columns = [
+      { header: "Data", key: "data", width: 12 },
+      { header: "Descri\xE7\xE3o", key: "descricao", width: 35 },
+      { header: "Categoria", key: "categoria", width: 18 },
+      { header: "M\xE9todo", key: "metodo", width: 15 },
+      { header: "Tipo", key: "tipo", width: 10 },
+      { header: "Valor", key: "valor", width: 14 }
+    ];
+    const headerRow = ws.getRow(1);
+    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF1A2035" }
+    };
+    headerRow.alignment = { horizontal: "center", vertical: "middle" };
+    headerRow.height = 25;
+    transactions2.forEach((t, idx) => {
+      const rowNum = idx + 2;
+      ws.addRow({
+        data: this.formatDate(t.date),
+        descricao: t.description,
+        categoria: t.category,
+        metodo: t.paymentMethod,
+        tipo: t.type === "income" ? "Receita" : "Despesa",
+        valor: t.amount
+      });
+      const row = ws.getRow(rowNum);
+      row.height = 20;
+      const catCell = ws.getCell(`C${rowNum}`);
+      catCell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: t.categoryColor }
+      };
+      const valueCell = ws.getCell(`F${rowNum}`);
+      valueCell.numFmt = "R$ #,##0.00";
+      valueCell.font = {
+        color: { argb: t.type === "income" ? "FF4CAF50" : "FFF44336" },
+        bold: true
+      };
+      valueCell.alignment = { horizontal: "right" };
+      const tipoCell = ws.getCell(`E${rowNum}`);
+      tipoCell.font = {
+        color: { argb: t.type === "income" ? "FF4CAF50" : "FFF44336" }
+      };
+      tipoCell.alignment = { horizontal: "center" };
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: "thin", color: { argb: "FFDDDDDD" } },
+          left: { style: "thin", color: { argb: "FFDDDDDD" } },
+          bottom: { style: "thin", color: { argb: "FFDDDDDD" } },
+          right: { style: "thin", color: { argb: "FFDDDDDD" } }
+        };
+      });
+      if (idx % 2 === 1) {
+        row.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFFAFAFA" }
+        };
+      }
+    });
+  }
+  createCategorySheet(wb, byCategory) {
+    const ws = wb.addWorksheet("Por Categoria", {
+      properties: { tabColor: { argb: "FFFF9800" } }
+    });
+    ws.columns = [
+      { header: "Categoria", key: "categoria", width: 25 },
+      { header: "Cor", key: "cor", width: 10 },
+      { header: "Valor", key: "total", width: 15 },
+      { header: "Percentual", key: "percentual", width: 15 }
+    ];
+    const headerRow = ws.getRow(1);
+    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFF9800" }
+    };
+    headerRow.alignment = { horizontal: "center" };
+    for (const cat of byCategory) {
+      const row = ws.addRow({
+        categoria: cat.category,
+        cor: "",
+        total: cat.total,
+        percentual: cat.percentage / 100
+      });
+      const colorCell = row.getCell(2);
+      colorCell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: cat.categoryColor }
+      };
+      row.getCell(3).numFmt = "R$ #,##0.00";
+      row.getCell(4).numFmt = "0.0%";
+    }
+  }
+  createMonthlySheet(wb, byMonth) {
+    const ws = wb.addWorksheet("Por M\xEAs", {
+      properties: { tabColor: { argb: "FF00BCD4" } }
+    });
+    ws.columns = [
+      { header: "M\xEAs", key: "mes", width: 12 },
+      { header: "Receitas", key: "receitas", width: 15 },
+      { header: "Despesas", key: "despesas", width: 15 },
+      { header: "Saldo", key: "saldo", width: 15 }
+    ];
+    const headerRow = ws.getRow(1);
+    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF00BCD4" }
+    };
+    headerRow.alignment = { horizontal: "center" };
+    for (const m of byMonth) {
+      const row = ws.addRow({
+        mes: m.month,
+        receitas: m.income,
+        despesas: m.expense,
+        saldo: m.balance
+      });
+      row.getCell(2).numFmt = "R$ #,##0.00";
+      row.getCell(3).numFmt = "R$ #,##0.00";
+      row.getCell(4).numFmt = "R$ #,##0.00";
+    }
+  }
+  async exportToPdf(userId, filters) {
+    const rawTransactions = await this.getTransactions(userId, filters);
+    const summary = await this.getSummary(userId, filters);
+    const transactionsData = rawTransactions.map((row) => {
+      const categoryName = row.category || "Sem Categoria";
+      const categoryColor = row.categoryColor ? `FF${row.categoryColor.replace("#", "").toUpperCase()}` : DEFAULT_COLOR;
+      return {
+        date: row.date.toISOString(),
+        description: row.description,
+        category: categoryName,
+        categoryColor,
+        paymentMethod: row.paymentMethod || "-",
+        type: row.type,
+        amount: Number(row.amount)
+      };
+    });
+    return new Promise((resolve, reject) => {
+      try {
+        const doc = new import_pdfkit.default({ size: "A4", margin: 40 });
+        const chunks = [];
+        doc.on("data", (chunk) => chunks.push(chunk));
+        doc.on("end", () => resolve(Buffer.concat(chunks)));
+        this.renderPdfHeader(doc, "Relat\xF3rio Financeiro");
+        this.renderPdfSummary(doc, summary);
+        this.renderPdfCategoryChart(doc, summary.byCategory);
+        doc.addPage();
+        this.renderPdfHeader(doc, "Transa\xE7\xF5es");
+        this.renderPdfTransactions(doc, transactionsData.slice(0, 20));
+        doc.end();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+  renderPdfHeader(doc, title) {
+    doc.fontSize(20).fillColor("#1A2035").text(title, { align: "center" });
+    doc.moveDown(0.5);
+    doc.fontSize(10).fillColor("#666666").text(`Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleDateString("pt-BR")}`, {
+      align: "center"
+    });
+    doc.moveDown(2);
+  }
+  renderPdfSummary(doc, summary) {
+    doc.fontSize(14).fillColor("#1A2035").text("Resumo Geral", { underline: true });
+    doc.moveDown(1);
+    const boxWidth = 160;
+    const boxHeight = 60;
+    const startX = 40;
+    const gap = 10;
+    const boxes = [
+      {
+        label: "Receitas",
+        value: this.formatCurrency(summary.totalIncome),
+        color: "#4CAF50"
+      },
+      {
+        label: "Despesas",
+        value: this.formatCurrency(summary.totalExpense),
+        color: "#F44336"
+      },
+      {
+        label: "Saldo",
+        value: this.formatCurrency(summary.balance),
+        color: summary.balance >= 0 ? "#4CAF50" : "#F44336"
+      }
+    ];
+    boxes.forEach((box, idx) => {
+      const x = startX + idx * (boxWidth + gap);
+      doc.rect(x, doc.y, boxWidth, boxHeight).fill("#F5F5F5");
+      doc.fontSize(10).fillColor("#666666").text(box.label, x + 10, doc.y + 10, { width: boxWidth - 20 });
+      doc.fontSize(16).fillColor(box.color).text(box.value, x + 10, doc.y + 5, { width: boxWidth - 20 });
+    });
+    doc.moveDown(4);
+    doc.fontSize(10).fillColor("#666666").text(`Total de transa\xE7\xF5es: ${summary.transactionCount}`);
+    doc.moveDown(2);
+  }
+  renderPdfCategoryChart(doc, categories2) {
+    doc.fontSize(14).fillColor("#1A2035").text("Gastos por Categoria", { underline: true });
+    doc.moveDown(1);
+    const chartWidth = 200;
+    const chartHeight = 150;
+    const legendX = 260;
+    const startY = doc.y;
+    doc.rect(40, startY, chartWidth, chartHeight).fill("#F5F5F5");
+    let currentAngle = 0;
+    const centerX = 40 + chartWidth / 2;
+    const centerY = startY + chartHeight / 2;
+    const radius = 50;
+    const total = categories2.reduce((sum, c) => sum + c.total, 0);
+    for (const cat of categories2) {
+      if (cat.total > 0) {
+        const sliceAngle = cat.total / total * 2 * Math.PI;
+        doc.fillColor(`#${cat.categoryColor}`);
+        doc.circle(centerX, centerY, radius).fill();
+        doc.fillColor("#FFFFFF");
+        doc.fontSize(8).text(
+          `${cat.category}
+${cat.percentage.toFixed(1)}%`,
+          centerX - 30,
+          centerY - 10,
+          { width: 60, align: "center" }
+        );
+        currentAngle += sliceAngle;
+      }
+    }
+    doc.y = startY;
+    for (let idx = 0; idx < Math.min(categories2.length, 6); idx++) {
+      const cat = categories2[idx];
+      const legendY = startY + 10 + idx * 20;
+      doc.fillColor(`#${cat.categoryColor}`).rect(legendX, legendY, 12, 12).fill();
+      doc.fontSize(9).fillColor("#333333").text(
+        `${cat.category}: ${this.formatCurrency(cat.total)}`,
+        legendX + 18,
+        legendY
+      );
+    }
+    doc.moveDown(10);
+  }
+  renderPdfTransactions(doc, transactions2) {
+    const tableTop = doc.y;
+    const colWidths = [70, 180, 80, 80];
+    const rowHeight = 20;
+    doc.rect(40, tableTop - 5, 510, rowHeight).fill("#1A2035");
+    doc.fillColor("#FFFFFF").fontSize(9);
+    doc.text("Data", 45, tableTop, { width: colWidths[0] });
+    doc.text("Descri\xE7\xE3o", 45 + colWidths[0], tableTop, { width: colWidths[1] });
+    doc.text("Categoria", 45 + colWidths[0] + colWidths[1], tableTop, {
+      width: colWidths[2]
+    });
+    doc.text(
+      "Valor",
+      45 + colWidths[0] + colWidths[1] + colWidths[2],
+      tableTop,
+      {
+        width: colWidths[3],
+        align: "right"
+      }
+    );
+    let y = tableTop + rowHeight;
+    for (let idx = 0; idx < transactions2.length; idx++) {
+      const t = transactions2[idx];
+      if (idx % 2 === 0) {
+        doc.rect(40, y - 3, 510, rowHeight).fill("#FAFAFA");
+      }
+      doc.fillColor("#333333").fontSize(8);
+      doc.text(this.formatDate(t.date), 45, y, { width: colWidths[0] });
+      doc.text(t.description.substring(0, 35), 45 + colWidths[0], y, {
+        width: colWidths[1]
+      });
+      doc.text(t.category ?? "-", 45 + colWidths[0] + colWidths[1], y, {
+        width: colWidths[2]
+      });
+      const color = t.type === "income" ? "#4CAF50" : "#F44336";
+      doc.fillColor(color);
+      doc.text(
+        this.formatCurrency(t.amount),
+        45 + colWidths[0] + colWidths[1] + colWidths[2],
+        y,
+        { width: colWidths[3], align: "right" }
+      );
+      y += rowHeight;
+    }
+  }
+};
+var dashboard_export_model_default = new DashboardExportModel();
+
+// src/modules/seed/dashboard.seed.controller.ts
+var DashboardSeedController = class {
+  /**
+   * Importa transações a partir de um arquivo Excel
+   */
+  async importFromExcel(req, reply) {
+    const payload = req.body || {};
+    console.log("Received import request with payload:", payload);
+    reply.status(501).send({ ok: false, message: "Not implemented yet" });
+  }
+  parseFilters(query) {
+    const q = query;
+    return {
+      startDate: q.startDate,
+      endDate: q.endDate
+    };
+  }
+  /**
+   * Exporta relatório financeiro em formato Excel (.xlsx)
+   *
+   * O relatório inclui:
+   * - Resumo geral (receitas, despesas, saldo)
+   * - Gastos por categoria
+   * - Resumo mensal
+   * - Lista de transações
+   */
+  async exportExcel(req, reply) {
+    try {
+      await req.jwtVerify();
+    } catch {
+      throw new AppError("Unauthorized", 401);
+    }
+    const userId = req.user.sub;
+    const filters = this.parseFilters(req.query);
+    const buffer = await dashboard_export_model_default.exportToExcel(userId, filters);
+    reply.type(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    reply.header(
+      "Content-Disposition",
+      'attachment; filename="relatorio_financeiro.xlsx"'
+    );
+    return reply.send(buffer);
+  }
+  /**
+   * Exporta relatório financeiro em formato PDF
+   *
+   * O relatório inclui:
+   * - Resumo geral (receitas, despesas, saldo)
+   * - Gráfico de pizza por categoria
+   * - Lista de transações
+   */
+  async exportPdf(req, reply) {
+    try {
+      await req.jwtVerify();
+    } catch {
+      throw new AppError("Unauthorized", 401);
+    }
+    const userId = req.user.sub;
+    const filters = this.parseFilters(req.query);
+    const buffer = await dashboard_export_model_default.exportToPdf(userId, filters);
+    reply.type("application/pdf");
+    reply.header(
+      "Content-Disposition",
+      'attachment; filename="relatorio_financeiro.pdf"'
+    );
+    return reply.send(buffer);
+  }
+  /**
+   * Exporta transações em formato CSV
+   *
+   * O arquivo CSV inclui:
+   * - Resumo geral
+   * - Gastos por categoria
+   * - Resumo mensal
+   * - Lista de transações
+   */
+  async exportCsv(req, reply) {
+    try {
+      await req.jwtVerify();
+    } catch {
+      throw new AppError("Unauthorized", 401);
+    }
+    const userId = req.user.sub;
+    const filters = this.parseFilters(req.query);
+    const csvContent = await dashboard_export_model_default.exportToCsv(userId, filters);
+    reply.type("text/csv; charset=utf-8");
+    reply.header(
+      "Content-Disposition",
+      'attachment; filename="transacoes.csv"'
+    );
+    return reply.send(csvContent);
+  }
+};
+var dashboard_seed_controller_default = new DashboardSeedController();
+
+// src/modules/seed/dashboard.seed.routes.ts
+async function registerSeedDashboardRoutes(app) {
+  app.post(
+    "/seed/dashboard/import",
+    {
+      schema: {
+        description: "Importa transa\xE7\xF5es a partir de um arquivo Excel",
+        tags: ["Seed"]
+      }
+    },
+    dashboard_seed_controller_default.importFromExcel.bind(dashboard_seed_controller_default)
+  );
+  app.get(
+    "/seed/dashboard/export/excel",
+    {
+      schema: {
+        description: "Exporta relat\xF3rio financeiro em formato Excel (.xlsx)",
+        tags: ["Export"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            startDate: { type: "string", description: "Data inicial (YYYY-MM-DD)" },
+            endDate: { type: "string", description: "Data final (YYYY-MM-DD)" }
+          }
+        }
+      }
+    },
+    dashboard_seed_controller_default.exportExcel.bind(dashboard_seed_controller_default)
+  );
+  app.get(
+    "/seed/dashboard/export/pdf",
+    {
+      schema: {
+        description: "Exporta relat\xF3rio financeiro em formato PDF",
+        tags: ["Export"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            startDate: { type: "string", description: "Data inicial (YYYY-MM-DD)" },
+            endDate: { type: "string", description: "Data final (YYYY-MM-DD)" }
+          }
+        }
+      }
+    },
+    dashboard_seed_controller_default.exportPdf.bind(dashboard_seed_controller_default)
+  );
+  app.get(
+    "/seed/dashboard/export/csv",
+    {
+      schema: {
+        description: "Exporta transa\xE7\xF5es em formato CSV",
+        tags: ["Export"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            startDate: { type: "string", description: "Data inicial (YYYY-MM-DD)" },
+            endDate: { type: "string", description: "Data final (YYYY-MM-DD)" }
+          }
+        }
+      }
+    },
+    dashboard_seed_controller_default.exportCsv.bind(dashboard_seed_controller_default)
+  );
+}
+
+// src/utils/catchError.ts
+async function catchError(promise) {
+  try {
+    const result = await promise;
+    return [null, result];
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    return [error, null];
+  }
+}
+
 // src/modules/auth/auth.model.ts
+var import_bcryptjs = __toESM(require("bcryptjs"), 1);
+var import_drizzle_orm2 = require("drizzle-orm");
 var SALT_ROUNDS = 10;
 var AuthModel = class {
   async findByEmail(email) {
-    const [user] = await db.select().from(users).where((0, import_drizzle_orm.eq)(users.email, email)).limit(1);
+    const [user] = await db.select().from(users).where((0, import_drizzle_orm2.eq)(users.email, email)).limit(1);
     return user;
   }
   async findById(id) {
@@ -237,7 +1123,7 @@ var AuthModel = class {
       name: users.name,
       email: users.email,
       createdAt: users.createdAt
-    }).from(users).where((0, import_drizzle_orm.eq)(users.id, id)).limit(1);
+    }).from(users).where((0, import_drizzle_orm2.eq)(users.id, id)).limit(1);
     return user;
   }
   async verifyPassword(password, hash) {
@@ -352,14 +1238,69 @@ var AuthController = class {
 // src/modules/auth/auth.routes.ts
 async function registerAuthRoutes(app) {
   const authController = new AuthController();
-  app.post("/auth/register", authController.register);
-  app.post("/auth/login", authController.login);
-  app.post("/auth/logout", authController.logout);
-  app.get("/auth/me", authController.me);
+  app.post(
+    "/auth/register",
+    {
+      schema: {
+        description: "Registra um novo usu\xE1rio",
+        tags: ["Auth"],
+        body: {
+          type: "object",
+          required: ["name", "email", "password"],
+          properties: {
+            name: { type: "string", description: "Nome do usu\xE1rio" },
+            email: { type: "string", format: "email", description: "E-mail do usu\xE1rio" },
+            password: { type: "string", minLength: 6, description: "Senha do usu\xE1rio" }
+          }
+        }
+      }
+    },
+    authController.register
+  );
+  app.post(
+    "/auth/login",
+    {
+      schema: {
+        description: "Autentica um usu\xE1rio e retorna o token JWT",
+        tags: ["Auth"],
+        body: {
+          type: "object",
+          required: ["email", "password"],
+          properties: {
+            email: { type: "string", format: "email", description: "E-mail do usu\xE1rio" },
+            password: { type: "string", description: "Senha do usu\xE1rio" },
+            rememberMe: { type: "boolean", description: "Manter login por 30 dias" }
+          }
+        }
+      }
+    },
+    authController.login
+  );
+  app.post(
+    "/auth/logout",
+    {
+      schema: {
+        description: "Realiza logout do usu\xE1rio",
+        tags: ["Auth"]
+      }
+    },
+    authController.logout
+  );
+  app.get(
+    "/auth/me",
+    {
+      schema: {
+        description: "Retorna os dados do usu\xE1rio autenticado",
+        tags: ["Auth"],
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    authController.me
+  );
 }
 
 // src/modules/categories/categories.model.ts
-var import_drizzle_orm2 = require("drizzle-orm");
+var import_drizzle_orm3 = require("drizzle-orm");
 var CategoryModel = class {
   async findAll(userId) {
     return db.select({
@@ -367,10 +1308,10 @@ var CategoryModel = class {
       name: categories.name,
       color: categories.color,
       icon: categories.icon
-    }).from(categories).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(categories.userId, userId), (0, import_drizzle_orm2.isNull)(categories.deletedAt))).orderBy((0, import_drizzle_orm2.asc)(categories.name));
+    }).from(categories).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(categories.userId, userId), (0, import_drizzle_orm3.isNull)(categories.deletedAt))).orderBy((0, import_drizzle_orm3.asc)(categories.name));
   }
   async findById(id, userId) {
-    const [category] = await db.select().from(categories).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(categories.id, id), (0, import_drizzle_orm2.eq)(categories.userId, userId))).limit(1);
+    const [category] = await db.select().from(categories).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(categories.id, id), (0, import_drizzle_orm3.eq)(categories.userId, userId))).limit(1);
     return category;
   }
   async createCategory(userId, data) {
@@ -384,26 +1325,26 @@ var CategoryModel = class {
   }
   async updateCategory(id, userId, data) {
     const [updated] = await db.update(categories).set(data).where(
-      (0, import_drizzle_orm2.and)(
-        (0, import_drizzle_orm2.eq)(categories.id, id),
-        (0, import_drizzle_orm2.eq)(categories.userId, userId),
-        (0, import_drizzle_orm2.isNull)(categories.deletedAt)
+      (0, import_drizzle_orm3.and)(
+        (0, import_drizzle_orm3.eq)(categories.id, id),
+        (0, import_drizzle_orm3.eq)(categories.userId, userId),
+        (0, import_drizzle_orm3.isNull)(categories.deletedAt)
       )
     ).returning();
     return updated;
   }
   async softDelete(id, userId) {
     const [deleted] = await db.update(categories).set({ deletedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm2.and)(
-        (0, import_drizzle_orm2.eq)(categories.id, id),
-        (0, import_drizzle_orm2.eq)(categories.userId, userId),
-        (0, import_drizzle_orm2.isNull)(categories.deletedAt)
+      (0, import_drizzle_orm3.and)(
+        (0, import_drizzle_orm3.eq)(categories.id, id),
+        (0, import_drizzle_orm3.eq)(categories.userId, userId),
+        (0, import_drizzle_orm3.isNull)(categories.deletedAt)
       )
     ).returning();
     return deleted;
   }
   async restoreCategory(id, userId) {
-    const [restored] = await db.update(categories).set({ deletedAt: null }).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(categories.id, id), (0, import_drizzle_orm2.eq)(categories.userId, userId))).returning();
+    const [restored] = await db.update(categories).set({ deletedAt: null }).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(categories.id, id), (0, import_drizzle_orm3.eq)(categories.userId, userId))).returning();
     return restored;
   }
 };
@@ -488,29 +1429,122 @@ async function registerCategoriesRoutes(app) {
       reply.send(err);
     }
   });
-  app.get("/categories", categoriesController.listCategories);
-  app.post("/categories", categoriesController.createCategory);
-  app.put("/categories/:id", categoriesController.updateCategory);
-  app.delete("/categories/:id", categoriesController.deleteCategory);
-  app.patch("/categories/:id/restore", categoriesController.restoreCategory);
+  app.get(
+    "/categories",
+    {
+      schema: {
+        description: "Lista todas as categorias do usu\xE1rio",
+        tags: ["Categories"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            type: { type: "string", enum: ["income", "expense"] },
+            includeDeleted: { type: "boolean" }
+          }
+        }
+      }
+    },
+    categoriesController.listCategories
+  );
+  app.post(
+    "/categories",
+    {
+      schema: {
+        description: "Cria uma nova categoria",
+        tags: ["Categories"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["name", "color", "type"],
+          properties: {
+            name: { type: "string" },
+            color: { type: "string" },
+            type: { type: "string", enum: ["income", "expense"] },
+            icon: { type: "string" }
+          }
+        }
+      }
+    },
+    categoriesController.createCategory
+  );
+  app.put(
+    "/categories/:id",
+    {
+      schema: {
+        description: "Atualiza uma categoria",
+        tags: ["Categories"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        },
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            color: { type: "string" },
+            icon: { type: "string" }
+          }
+        }
+      }
+    },
+    categoriesController.updateCategory
+  );
+  app.delete(
+    "/categories/:id",
+    {
+      schema: {
+        description: "Soft delete de uma categoria",
+        tags: ["Categories"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    categoriesController.deleteCategory
+  );
+  app.patch(
+    "/categories/:id/restore",
+    {
+      schema: {
+        description: "Restaura uma categoria deletada",
+        tags: ["Categories"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    categoriesController.restoreCategory
+  );
 }
 
 // src/modules/payment-methods/payment-methods.model.ts
-var import_drizzle_orm3 = require("drizzle-orm");
+var import_drizzle_orm4 = require("drizzle-orm");
 var PaymentMethodModel = class {
   async findAll(userId) {
     return db.select({
       id: paymentMethods.id,
       name: paymentMethods.name
     }).from(paymentMethods).where(
-      (0, import_drizzle_orm3.and)(
-        (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId),
-        (0, import_drizzle_orm3.isNull)(paymentMethods.deletedAt)
+      (0, import_drizzle_orm4.and)(
+        (0, import_drizzle_orm4.eq)(paymentMethods.userId, userId),
+        (0, import_drizzle_orm4.isNull)(paymentMethods.deletedAt)
       )
-    ).orderBy((0, import_drizzle_orm3.asc)(paymentMethods.name));
+    ).orderBy((0, import_drizzle_orm4.asc)(paymentMethods.name));
   }
   async findById(id, userId) {
-    const [method] = await db.select().from(paymentMethods).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(paymentMethods.id, id), (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId))).limit(1);
+    const [method] = await db.select().from(paymentMethods).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(paymentMethods.id, id), (0, import_drizzle_orm4.eq)(paymentMethods.userId, userId))).limit(1);
     return method;
   }
   async createMethod(userId, data) {
@@ -522,26 +1556,26 @@ var PaymentMethodModel = class {
   }
   async updateMethod(id, userId, data) {
     const [updated] = await db.update(paymentMethods).set(data).where(
-      (0, import_drizzle_orm3.and)(
-        (0, import_drizzle_orm3.eq)(paymentMethods.id, id),
-        (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId),
-        (0, import_drizzle_orm3.isNull)(paymentMethods.deletedAt)
+      (0, import_drizzle_orm4.and)(
+        (0, import_drizzle_orm4.eq)(paymentMethods.id, id),
+        (0, import_drizzle_orm4.eq)(paymentMethods.userId, userId),
+        (0, import_drizzle_orm4.isNull)(paymentMethods.deletedAt)
       )
     ).returning();
     return updated;
   }
   async softDelete(id, userId) {
     const [deleted] = await db.update(paymentMethods).set({ deletedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm3.and)(
-        (0, import_drizzle_orm3.eq)(paymentMethods.id, id),
-        (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId),
-        (0, import_drizzle_orm3.isNull)(paymentMethods.deletedAt)
+      (0, import_drizzle_orm4.and)(
+        (0, import_drizzle_orm4.eq)(paymentMethods.id, id),
+        (0, import_drizzle_orm4.eq)(paymentMethods.userId, userId),
+        (0, import_drizzle_orm4.isNull)(paymentMethods.deletedAt)
       )
     ).returning();
     return deleted;
   }
   async restoreMethod(id, userId) {
-    const [restored] = await db.update(paymentMethods).set({ deletedAt: null }).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(paymentMethods.id, id), (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId))).returning();
+    const [restored] = await db.update(paymentMethods).set({ deletedAt: null }).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(paymentMethods.id, id), (0, import_drizzle_orm4.eq)(paymentMethods.userId, userId))).returning();
     return restored;
   }
 };
@@ -630,21 +1664,102 @@ async function registerPaymentMethodsRoutes(app) {
       reply.send(err);
     }
   });
-  app.get("/payment-methods", paymentMethodsController.listPaymentMethods);
-  app.post("/payment-methods", paymentMethodsController.createPaymentMethod);
-  app.put("/payment-methods/:id", paymentMethodsController.updatePaymentMethod);
+  app.get(
+    "/payment-methods",
+    {
+      schema: {
+        description: "Lista todos os m\xE9todos de pagamento do usu\xE1rio",
+        tags: ["Payment Methods"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            includeDeleted: { type: "boolean" }
+          }
+        }
+      }
+    },
+    paymentMethodsController.listPaymentMethods
+  );
+  app.post(
+    "/payment-methods",
+    {
+      schema: {
+        description: "Cria um novo m\xE9todo de pagamento",
+        tags: ["Payment Methods"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: { type: "string" }
+          }
+        }
+      }
+    },
+    paymentMethodsController.createPaymentMethod
+  );
+  app.put(
+    "/payment-methods/:id",
+    {
+      schema: {
+        description: "Atualiza um m\xE9todo de pagamento",
+        tags: ["Payment Methods"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        },
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string" }
+          }
+        }
+      }
+    },
+    paymentMethodsController.updatePaymentMethod
+  );
   app.delete(
     "/payment-methods/:id",
+    {
+      schema: {
+        description: "Soft delete de um m\xE9todo de pagamento",
+        tags: ["Payment Methods"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
     paymentMethodsController.deletePaymentMethod
   );
   app.patch(
     "/payment-methods/:id/restore",
+    {
+      schema: {
+        description: "Restaura um m\xE9todo de pagamento deletado",
+        tags: ["Payment Methods"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
     paymentMethodsController.restorePaymentMethod
   );
 }
 
 // src/modules/transactions/transactions.model.ts
-var import_drizzle_orm4 = require("drizzle-orm");
+var import_drizzle_orm5 = require("drizzle-orm");
 var TransactionModel = class {
   async findAll(userId, filters) {
     const startDate = filters.startDate ? new Date(filters.startDate) : void 0;
@@ -669,29 +1784,29 @@ var TransactionModel = class {
         name: paymentMethods.name
       },
       createdAt: transactions.createdAt
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm4.eq)(transactions.categoryId, categories.id)).leftJoin(
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm5.eq)(transactions.categoryId, categories.id)).leftJoin(
       paymentMethods,
-      (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, paymentMethods.id)
+      (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, paymentMethods.id)
     ).where(
-      (0, import_drizzle_orm4.and)(
-        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
-        filters.type ? (0, import_drizzle_orm4.eq)(transactions.type, filters.type) : void 0,
-        filters.categoryId ? (0, import_drizzle_orm4.eq)(transactions.categoryId, filters.categoryId) : void 0,
-        filters.paymentMethodId ? (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
-        filters.month ? import_drizzle_orm4.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
-        startDate ? (0, import_drizzle_orm4.gte)(transactions.date, startDate) : void 0,
-        endDate ? (0, import_drizzle_orm4.lte)(transactions.date, endDate) : void 0
+      (0, import_drizzle_orm5.and)(
+        (0, import_drizzle_orm5.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm5.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm5.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        filters.paymentMethodId ? (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
+        filters.month ? import_drizzle_orm5.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
+        startDate ? (0, import_drizzle_orm5.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm5.lte)(transactions.date, endDate) : void 0
       )
-    ).orderBy((0, import_drizzle_orm4.desc)(transactions.date), (0, import_drizzle_orm4.desc)(transactions.createdAt)).limit(filters.limit).offset((filters.page - 1) * filters.limit);
-    const countQuery = db.select({ count: (0, import_drizzle_orm4.count)() }).from(transactions).where(
-      (0, import_drizzle_orm4.and)(
-        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
-        filters.type ? (0, import_drizzle_orm4.eq)(transactions.type, filters.type) : void 0,
-        filters.categoryId ? (0, import_drizzle_orm4.eq)(transactions.categoryId, filters.categoryId) : void 0,
-        filters.paymentMethodId ? (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
-        filters.month ? import_drizzle_orm4.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
-        startDate ? (0, import_drizzle_orm4.gte)(transactions.date, startDate) : void 0,
-        endDate ? (0, import_drizzle_orm4.lte)(transactions.date, endDate) : void 0
+    ).orderBy((0, import_drizzle_orm5.desc)(transactions.date), (0, import_drizzle_orm5.desc)(transactions.createdAt)).limit(filters.limit).offset((filters.page - 1) * filters.limit);
+    const countQuery = db.select({ count: (0, import_drizzle_orm5.count)() }).from(transactions).where(
+      (0, import_drizzle_orm5.and)(
+        (0, import_drizzle_orm5.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm5.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm5.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        filters.paymentMethodId ? (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
+        filters.month ? import_drizzle_orm5.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
+        startDate ? (0, import_drizzle_orm5.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm5.lte)(transactions.date, endDate) : void 0
       )
     );
     const [data, [{ count: totalSize }]] = await Promise.all([
@@ -724,10 +1839,10 @@ var TransactionModel = class {
         name: paymentMethods.name
       },
       createdAt: transactions.createdAt
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm4.eq)(transactions.categoryId, categories.id)).leftJoin(
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm5.eq)(transactions.categoryId, categories.id)).leftJoin(
       paymentMethods,
-      (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, paymentMethods.id)
-    ).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).limit(1);
+      (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, paymentMethods.id)
+    ).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(transactions.id, id), (0, import_drizzle_orm5.eq)(transactions.userId, userId))).limit(1);
     return transaction;
   }
   async createTransaction(userId, data) {
@@ -747,30 +1862,30 @@ var TransactionModel = class {
     const updateData = { ...data };
     if (data.date) updateData.date = new Date(data.date);
     if (data.amount) updateData.amount = data.amount.toString();
-    const [updated] = await db.update(transactions).set(updateData).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).returning();
+    const [updated] = await db.update(transactions).set(updateData).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(transactions.id, id), (0, import_drizzle_orm5.eq)(transactions.userId, userId))).returning();
     return updated;
   }
   async deleteTransaction(id, userId) {
-    const [deleted] = await db.delete(transactions).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).returning();
+    const [deleted] = await db.delete(transactions).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(transactions.id, id), (0, import_drizzle_orm5.eq)(transactions.userId, userId))).returning();
     return deleted;
   }
 };
 
 // src/modules/recurring/recurring.model.ts
-var import_drizzle_orm5 = require("drizzle-orm");
+var import_drizzle_orm6 = require("drizzle-orm");
 var RecurringTransactionModel = class {
   async findAll(userId, filters) {
-    let conditions = (0, import_drizzle_orm5.eq)(recurringTransactions.userId, userId);
+    let conditions = (0, import_drizzle_orm6.eq)(recurringTransactions.userId, userId);
     if (filters?.isActive !== void 0) {
-      conditions = (0, import_drizzle_orm5.and)(
+      conditions = (0, import_drizzle_orm6.and)(
         conditions,
-        (0, import_drizzle_orm5.eq)(recurringTransactions.isActive, filters.isActive)
+        (0, import_drizzle_orm6.eq)(recurringTransactions.isActive, filters.isActive)
       );
     }
     if (filters?.type) {
-      conditions = (0, import_drizzle_orm5.and)(
+      conditions = (0, import_drizzle_orm6.and)(
         conditions,
-        (0, import_drizzle_orm5.eq)(recurringTransactions.type, filters.type)
+        (0, import_drizzle_orm6.eq)(recurringTransactions.type, filters.type)
       );
     }
     return db.select({
@@ -800,10 +1915,10 @@ var RecurringTransactionModel = class {
       isActive: recurringTransactions.isActive,
       lastGeneratedAt: recurringTransactions.lastGeneratedAt,
       createdAt: recurringTransactions.createdAt
-    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm5.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
+    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm6.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
       paymentMethods,
-      (0, import_drizzle_orm5.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
-    ).where(conditions).orderBy((0, import_drizzle_orm5.asc)(recurringTransactions.createdAt));
+      (0, import_drizzle_orm6.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
+    ).where(conditions).orderBy((0, import_drizzle_orm6.asc)(recurringTransactions.createdAt));
   }
   async findById(id, userId) {
     const [recurring] = await db.select({
@@ -833,13 +1948,13 @@ var RecurringTransactionModel = class {
       isActive: recurringTransactions.isActive,
       lastGeneratedAt: recurringTransactions.lastGeneratedAt,
       createdAt: recurringTransactions.createdAt
-    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm5.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
+    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm6.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
       paymentMethods,
-      (0, import_drizzle_orm5.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
+      (0, import_drizzle_orm6.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
     ).where(
-      (0, import_drizzle_orm5.and)(
-        (0, import_drizzle_orm5.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm5.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm6.eq)(recurringTransactions.userId, userId)
       )
     ).limit(1);
     return recurring;
@@ -885,9 +2000,9 @@ var RecurringTransactionModel = class {
     }
     updateData.updatedAt = /* @__PURE__ */ new Date();
     const [updated] = await db.update(recurringTransactions).set(updateData).where(
-      (0, import_drizzle_orm5.and)(
-        (0, import_drizzle_orm5.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm5.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm6.eq)(recurringTransactions.userId, userId)
       )
     ).returning();
     return updated;
@@ -896,18 +2011,18 @@ var RecurringTransactionModel = class {
     const existing = await this.findById(id, userId);
     if (!existing) return null;
     const [updated] = await db.update(recurringTransactions).set({ isActive: !existing.isActive, updatedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm5.and)(
-        (0, import_drizzle_orm5.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm5.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm6.eq)(recurringTransactions.userId, userId)
       )
     ).returning();
     return updated;
   }
   async softDelete(id, userId) {
     const [deleted] = await db.update(recurringTransactions).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm5.and)(
-        (0, import_drizzle_orm5.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm5.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm6.eq)(recurringTransactions.userId, userId)
       )
     ).returning();
     return deleted;
@@ -968,7 +2083,11 @@ var RecurringTransactionController = class {
     const [err, result] = await catchError(
       this.recurringModel.findAll(userId, filters)
     );
-    if (err) throw new AppError(`Erro ao listar transa\xE7\xF5es recorrentes, ${err.message}`, 500);
+    if (err)
+      throw new AppError(
+        `Erro ao listar transa\xE7\xF5es recorrentes, ${err.message}`,
+        500
+      );
     return reply.send(result);
   };
   getRecurringTransaction = async (request, reply) => {
@@ -1132,7 +2251,10 @@ var RecurringTransactionController = class {
           nextDate.setFullYear(nextDate.getFullYear() + 1);
           break;
         case "custom": {
-          const interval = Number.parseInt(recurring.customIntervalDays || "0", 10);
+          const interval = Number.parseInt(
+            recurring.customIntervalDays || "0",
+            10
+          );
           if (interval > 0) {
             nextDate = new Date(lastGen);
             nextDate.setDate(nextDate.getDate() + interval);
@@ -1160,17 +2282,156 @@ async function registerRecurringRoutes(app) {
       reply.send(err);
     }
   });
-  app.get("/recurring", controller.listRecurringTransactions);
-  app.get("/recurring/:id", controller.getRecurringTransaction);
-  app.post("/recurring", controller.createRecurringTransaction);
-  app.put("/recurring/:id", controller.updateRecurringTransaction);
-  app.patch("/recurring/:id/toggle", controller.toggleRecurringTransaction);
-  app.delete("/recurring/:id", controller.deleteRecurringTransaction);
-  app.post("/recurring/:id/process", controller.processRecurringTransaction);
+  app.get(
+    "/recurring",
+    {
+      schema: {
+        description: "Lista todas as transa\xE7\xF5es recorrentes do usu\xE1rio",
+        tags: ["Recurring"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            includeInactive: { type: "boolean" }
+          }
+        }
+      }
+    },
+    controller.listRecurringTransactions
+  );
+  app.get(
+    "/recurring/:id",
+    {
+      schema: {
+        description: "Retorna uma transa\xE7\xE3o recorrente pelo ID",
+        tags: ["Recurring"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.getRecurringTransaction
+  );
+  app.post(
+    "/recurring",
+    {
+      schema: {
+        description: "Cria uma nova transa\xE7\xE3o recorrente",
+        tags: ["Recurring"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["description", "amount", "type", "date", "frequency"],
+          properties: {
+            description: { type: "string" },
+            amount: { type: "number" },
+            type: { type: "string", enum: ["income", "expense"] },
+            date: { type: "string", format: "date" },
+            frequency: {
+              type: "string",
+              enum: ["daily", "weekly", "monthly", "yearly", "custom"]
+            },
+            customIntervalDays: { type: "integer" },
+            categoryId: { type: "string", format: "uuid" },
+            paymentMethodId: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.createRecurringTransaction
+  );
+  app.put(
+    "/recurring/:id",
+    {
+      schema: {
+        description: "Atualiza uma transa\xE7\xE3o recorrente",
+        tags: ["Recurring"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        },
+        body: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            amount: { type: "number" },
+            type: { type: "string", enum: ["income", "expense"] },
+            date: { type: "string", format: "date" },
+            frequency: {
+              type: "string",
+              enum: ["daily", "weekly", "monthly", "yearly", "custom"]
+            },
+            customIntervalDays: { type: "integer" },
+            categoryId: { type: "string", format: "uuid" },
+            paymentMethodId: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.updateRecurringTransaction
+  );
+  app.patch(
+    "/recurring/:id/toggle",
+    {
+      schema: {
+        description: "Ativa ou desativa uma transa\xE7\xE3o recorrente",
+        tags: ["Recurring"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.toggleRecurringTransaction
+  );
+  app.delete(
+    "/recurring/:id",
+    {
+      schema: {
+        description: "Deleta uma transa\xE7\xE3o recorrente",
+        tags: ["Recurring"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.deleteRecurringTransaction
+  );
+  app.post(
+    "/recurring/:id/process",
+    {
+      schema: {
+        description: "Processa manualmente uma transa\xE7\xE3o recorrente",
+        tags: ["Recurring"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.processRecurringTransaction
+  );
 }
 
 // src/modules/summary/summary.model.ts
-var import_drizzle_orm6 = require("drizzle-orm");
+var import_drizzle_orm7 = require("drizzle-orm");
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -1236,31 +2497,31 @@ var SummaryModel = class {
   async getSummary(userId, filters = {}) {
     const range = resolveRange(filters);
     const [balanceResult] = await db.select({
-      total: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE -${transactions.amount} END), 0)`
+      total: import_drizzle_orm7.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE -${transactions.amount} END), 0)`
     }).from(transactions).where(
-      (0, import_drizzle_orm6.and)(
-        (0, import_drizzle_orm6.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm6.gte)(transactions.date, range.start),
-        (0, import_drizzle_orm6.lt)(transactions.date, range.endExclusive)
+      (0, import_drizzle_orm7.and)(
+        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
+        (0, import_drizzle_orm7.gte)(transactions.date, range.start),
+        (0, import_drizzle_orm7.lt)(transactions.date, range.endExclusive)
       )
     );
     const [currentMonthTotals] = await db.select({
-      income: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
-      expense: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+      income: import_drizzle_orm7.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
+      expense: import_drizzle_orm7.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
     }).from(transactions).where(
-      (0, import_drizzle_orm6.and)(
-        (0, import_drizzle_orm6.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm6.gte)(transactions.date, range.start),
-        (0, import_drizzle_orm6.lt)(transactions.date, range.endExclusive)
+      (0, import_drizzle_orm7.and)(
+        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
+        (0, import_drizzle_orm7.gte)(transactions.date, range.start),
+        (0, import_drizzle_orm7.lt)(transactions.date, range.endExclusive)
       )
     );
     const [previousMonthTotals] = await db.select({
-      expense: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+      expense: import_drizzle_orm7.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
     }).from(transactions).where(
-      (0, import_drizzle_orm6.and)(
-        (0, import_drizzle_orm6.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm6.gte)(transactions.date, range.previousStart),
-        (0, import_drizzle_orm6.lt)(transactions.date, range.previousEndExclusive)
+      (0, import_drizzle_orm7.and)(
+        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
+        (0, import_drizzle_orm7.gte)(transactions.date, range.previousStart),
+        (0, import_drizzle_orm7.lt)(transactions.date, range.previousEndExclusive)
       )
     );
     const expenseChange = previousMonthTotals.expense > 0 ? (currentMonthTotals.expense - previousMonthTotals.expense) / previousMonthTotals.expense * 100 : 0;
@@ -1273,15 +2534,15 @@ var SummaryModel = class {
   }
   async getMonthlySummary(userId) {
     const result = await db.select({
-      month: import_drizzle_orm6.sql`to_char(${transactions.date}, 'YYYY-MM')`,
-      income: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
-      expense: import_drizzle_orm6.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+      month: import_drizzle_orm7.sql`to_char(${transactions.date}, 'YYYY-MM')`,
+      income: import_drizzle_orm7.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
+      expense: import_drizzle_orm7.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
     }).from(transactions).where(
-      (0, import_drizzle_orm6.and)(
-        (0, import_drizzle_orm6.eq)(transactions.userId, userId),
-        import_drizzle_orm6.sql`${transactions.date} >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'`
+      (0, import_drizzle_orm7.and)(
+        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
+        import_drizzle_orm7.sql`${transactions.date} >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'`
       )
-    ).groupBy(import_drizzle_orm6.sql`to_char(${transactions.date}, 'YYYY-MM')`).orderBy(import_drizzle_orm6.sql`to_char(${transactions.date}, 'YYYY-MM')`);
+    ).groupBy(import_drizzle_orm7.sql`to_char(${transactions.date}, 'YYYY-MM')`).orderBy(import_drizzle_orm7.sql`to_char(${transactions.date}, 'YYYY-MM')`);
     return result.map((r) => ({
       month: r.month,
       income: Number(r.income),
@@ -1295,15 +2556,15 @@ var SummaryModel = class {
       categoryId: transactions.categoryId,
       categoryName: categories.name,
       color: categories.color,
-      total: import_drizzle_orm6.sql`SUM(${transactions.amount})`
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm6.eq)(transactions.categoryId, categories.id)).where(
-      (0, import_drizzle_orm6.and)(
-        (0, import_drizzle_orm6.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm6.eq)(transactions.type, "expense"),
-        (0, import_drizzle_orm6.gte)(transactions.date, range.start),
-        (0, import_drizzle_orm6.lt)(transactions.date, range.endExclusive)
+      total: import_drizzle_orm7.sql`SUM(${transactions.amount})`
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm7.eq)(transactions.categoryId, categories.id)).where(
+      (0, import_drizzle_orm7.and)(
+        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
+        (0, import_drizzle_orm7.eq)(transactions.type, "expense"),
+        (0, import_drizzle_orm7.gte)(transactions.date, range.start),
+        (0, import_drizzle_orm7.lt)(transactions.date, range.endExclusive)
       )
-    ).groupBy(transactions.categoryId, categories.name, categories.color).orderBy((0, import_drizzle_orm6.desc)(import_drizzle_orm6.sql`SUM(${transactions.amount})`));
+    ).groupBy(transactions.categoryId, categories.name, categories.color).orderBy((0, import_drizzle_orm7.desc)(import_drizzle_orm7.sql`SUM(${transactions.amount})`));
     const totalExpense = expenses.reduce(
       (acc, curr) => acc + Number(curr.total),
       0
@@ -1369,9 +2630,58 @@ async function registerSummaryRoutes(app) {
       reply.send(err);
     }
   });
-  app.get("/summary", summaryController.getSummary);
-  app.get("/summary/monthly", summaryController.getMonthlySummary);
-  app.get("/summary/by-category", summaryController.getByCategorySummary);
+  app.get(
+    "/summary",
+    {
+      schema: {
+        description: "Retorna o resumo geral das finan\xE7as",
+        tags: ["Summary"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            month: { type: "string", description: "M\xEAs espec\xEDfico (YYYY-MM)" }
+          }
+        }
+      }
+    },
+    summaryController.getSummary
+  );
+  app.get(
+    "/summary/monthly",
+    {
+      schema: {
+        description: "Retorna o resumo mensal das finan\xE7as",
+        tags: ["Summary"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            months: { type: "integer", description: "Quantidade de meses" }
+          }
+        }
+      }
+    },
+    summaryController.getMonthlySummary
+  );
+  app.get(
+    "/summary/by-category",
+    {
+      schema: {
+        description: "Retorna o resumo por categoria",
+        tags: ["Summary"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            month: { type: "string", description: "M\xEAs espec\xEDfico (YYYY-MM)" },
+            type: { type: "string", enum: ["income", "expense"] }
+          }
+        }
+      }
+    },
+    summaryController.getByCategorySummary
+  );
 }
 
 // src/modules/transactions/transactions.schema.ts
@@ -1508,11 +2818,111 @@ async function registerTransactionsRoutes(app) {
       reply.send(err);
     }
   });
-  app.get("/transactions", transactionsController.listTransactions);
-  app.get("/transactions/:id", transactionsController.getTransaction);
-  app.post("/transactions", transactionsController.createTransaction);
-  app.put("/transactions/:id", transactionsController.updateTransaction);
-  app.delete("/transactions/:id", transactionsController.deleteTransaction);
+  app.get(
+    "/transactions",
+    {
+      schema: {
+        description: "Lista todas as transa\xE7\xF5es do usu\xE1rio",
+        tags: ["Transactions"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            type: { type: "string", enum: ["income", "expense"] },
+            categoryId: { type: "string", format: "uuid" },
+            page: { type: "integer" },
+            limit: { type: "integer" }
+          }
+        }
+      }
+    },
+    transactionsController.listTransactions
+  );
+  app.get(
+    "/transactions/:id",
+    {
+      schema: {
+        description: "Retorna uma transa\xE7\xE3o pelo ID",
+        tags: ["Transactions"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    transactionsController.getTransaction
+  );
+  app.post(
+    "/transactions",
+    {
+      schema: {
+        description: "Cria uma nova transa\xE7\xE3o",
+        tags: ["Transactions"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["description", "amount", "type", "date"],
+          properties: {
+            description: { type: "string" },
+            amount: { type: "number" },
+            type: { type: "string", enum: ["income", "expense"] },
+            date: { type: "string", format: "date" },
+            categoryId: { type: "string", format: "uuid" },
+            paymentMethodId: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    transactionsController.createTransaction
+  );
+  app.put(
+    "/transactions/:id",
+    {
+      schema: {
+        description: "Atualiza uma transa\xE7\xE3o",
+        tags: ["Transactions"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        },
+        body: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            amount: { type: "number" },
+            type: { type: "string", enum: ["income", "expense"] },
+            date: { type: "string", format: "date" },
+            categoryId: { type: "string", format: "uuid" },
+            paymentMethodId: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    transactionsController.updateTransaction
+  );
+  app.delete(
+    "/transactions/:id",
+    {
+      schema: {
+        description: "Deleta uma transa\xE7\xE3o",
+        tags: ["Transactions"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    transactionsController.deleteTransaction
+  );
 }
 
 // src/config/routes.ts
@@ -1527,250 +2937,6 @@ async function registerRoutes(app) {
   await app.register(registerRecurringRoutes);
   await app.register(registerTransactionsRoutes);
   await app.register(registerSummaryRoutes);
-}
-
-// src/modules/seed/dashboard.export.model.ts
-var import_drizzle_orm7 = require("drizzle-orm");
-var import_exceljs = __toESM(require("exceljs"), 1);
-var import_pdfkit = __toESM(require("pdfkit"), 1);
-var DashboardExportModel = class {
-  async getTransactionsForExport(userId, filters) {
-    const startDate = filters.startDate ? new Date(filters.startDate) : void 0;
-    const endDate = filters.endDate ? new Date(filters.endDate) : void 0;
-    const rows = await db.select({
-      date: transactions.date,
-      description: transactions.description,
-      category: categories.name,
-      paymentMethod: paymentMethods.name,
-      type: transactions.type,
-      amount: transactions.amount
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm7.eq)(transactions.categoryId, categories.id)).leftJoin(
-      paymentMethods,
-      (0, import_drizzle_orm7.eq)(transactions.paymentMethodId, paymentMethods.id)
-    ).where(
-      (0, import_drizzle_orm7.and)(
-        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
-        filters.type ? (0, import_drizzle_orm7.eq)(transactions.type, filters.type) : void 0,
-        filters.categoryId ? (0, import_drizzle_orm7.eq)(transactions.categoryId, filters.categoryId) : void 0,
-        startDate ? (0, import_drizzle_orm7.gte)(transactions.date, startDate) : void 0,
-        endDate ? (0, import_drizzle_orm7.lte)(transactions.date, endDate) : void 0
-      )
-    ).orderBy((0, import_drizzle_orm7.desc)(transactions.date));
-    return rows.map((row) => ({
-      date: row.date.toLocaleDateString("pt-BR"),
-      description: row.description,
-      category: row.category || "-",
-      type: row.type === "income" ? "Receita" : "Despesa",
-      total: Number(row.amount).toLocaleString("pt-BR", {
-        style: "currency",
-        currency: "BRL"
-      })
-    }));
-  }
-  async exportToExcel(userId, filters) {
-    const startDate = filters.startDate ? new Date(filters.startDate) : void 0;
-    const endDate = filters.endDate ? new Date(filters.endDate) : void 0;
-    const rows = await db.select({
-      date: transactions.date,
-      description: transactions.description,
-      category: categories.name,
-      paymentMethod: paymentMethods.name,
-      type: transactions.type,
-      amount: transactions.amount
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm7.eq)(transactions.categoryId, categories.id)).leftJoin(
-      paymentMethods,
-      (0, import_drizzle_orm7.eq)(transactions.paymentMethodId, paymentMethods.id)
-    ).where(
-      (0, import_drizzle_orm7.and)(
-        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
-        filters.type ? (0, import_drizzle_orm7.eq)(transactions.type, filters.type) : void 0,
-        filters.categoryId ? (0, import_drizzle_orm7.eq)(transactions.categoryId, filters.categoryId) : void 0,
-        startDate ? (0, import_drizzle_orm7.gte)(transactions.date, startDate) : void 0,
-        endDate ? (0, import_drizzle_orm7.lte)(transactions.date, endDate) : void 0
-      )
-    ).orderBy((0, import_drizzle_orm7.desc)(transactions.date));
-    const data = rows.map((row) => ({
-      valor: Number(row.amount).toLocaleString("pt-BR", {
-        style: "currency",
-        currency: "BRL"
-      }),
-      descricao: row.description,
-      categoria: row.category || "-",
-      metodoPagamento: row.paymentMethod || "-",
-      tipo: row.type === "income" ? "Receita" : "Despesa",
-      data: row.date.toLocaleDateString("pt-BR"),
-      total: Number(row.amount)
-    }));
-    const wb = new import_exceljs.default.Workbook();
-    const ws = wb.addWorksheet("Transa\xE7\xF5es");
-    ws.columns = [
-      { header: "Data", key: "data", width: 12 },
-      { header: "Descri\xE7\xE3o", key: "descricao", width: 35 },
-      { header: "Categoria", key: "categoria", width: 15 },
-      { header: "M\xE9todo", key: "metodoPagamento", width: 15 },
-      { header: "Tipo", key: "tipo", width: 10 },
-      { header: "Valor (R$)", key: "valor", width: 14 }
-    ];
-    const headerRow = ws.getRow(1);
-    headerRow.font = { bold: true };
-    headerRow.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FF2D5FF3" }
-    };
-    headerRow.alignment = { horizontal: "center" };
-    data.forEach((row, idx) => {
-      const rowIndex = idx + 2;
-      ws.addRow(row);
-      const addedRow = ws.getRow(rowIndex);
-      addedRow.alignment = { vertical: "middle", horizontal: "left" };
-    });
-    ws.eachRow((row) => {
-      row.eachCell((cell) => {
-        cell.border = {
-          top: { style: "thin" },
-          left: { style: "thin" },
-          bottom: { style: "thin" },
-          right: { style: "thin" }
-        };
-      });
-    });
-    const buffer = await wb.xlsx.writeBuffer();
-    return Buffer.from(buffer);
-  }
-  async exportToPdf(userId, filters) {
-    const rows = await this.getTransactionsForExport(userId, filters);
-    return new Promise((resolve, reject) => {
-      try {
-        const doc = new import_pdfkit.default({ size: "A4", margin: 50 });
-        const chunks = [];
-        doc.on("data", (chunk) => chunks.push(chunk));
-        doc.on("end", () => resolve(Buffer.concat(chunks)));
-        doc.fontSize(18).text("Relat\xF3rio de Transa\xE7\xF5es", { align: "center" });
-        doc.moveDown(2);
-        const startX = 50;
-        const rowY = 120;
-        const colWidths = [70, 180, 80, 80];
-        doc.rect(startX, rowY - 10, 520, 22).fill("#1A2035");
-        doc.fillColor("#FFFFFF").fontSize(10);
-        doc.text("Data", startX + 5, rowY - 6, { width: colWidths[0] });
-        doc.text("Descri\xE7\xE3o", startX + colWidths[0] + 5, rowY - 6, {
-          width: colWidths[1]
-        });
-        doc.text(
-          "Categoria",
-          startX + colWidths[0] + colWidths[1] + 10,
-          rowY - 6,
-          {
-            width: colWidths[2]
-          }
-        );
-        doc.text(
-          "Valor",
-          startX + colWidths[0] + colWidths[1] + colWidths[2] + 15,
-          rowY - 6,
-          {
-            width: colWidths[3],
-            align: "right"
-          }
-        );
-        let y = rowY + 20;
-        for (const r of rows.slice(0, 25)) {
-          doc.fillColor("#000000").fontSize(9);
-          doc.text(r.date, startX, y, { width: colWidths[0] });
-          doc.text(r.description, startX + colWidths[0] + 5, y, {
-            width: colWidths[1]
-          });
-          doc.text(r.category, startX + colWidths[0] + colWidths[1] + 10, y, {
-            width: colWidths[2]
-          });
-          doc.text(
-            r.total,
-            startX + colWidths[0] + colWidths[1] + colWidths[2] + 15,
-            y,
-            {
-              width: colWidths[3],
-              align: "right"
-            }
-          );
-          y += 16;
-        }
-        doc.end();
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-};
-var dashboard_export_model_default = new DashboardExportModel();
-
-// src/modules/seed/dashboard.export.schema.ts
-var import_zod9 = require("zod");
-var exportFilterSchema = import_zod9.z.object({
-  startDate: import_zod9.z.string().datetime({ message: "Data inicial deve ser ISO 8601 v\xE1lida" }).optional(),
-  endDate: import_zod9.z.string().datetime({ message: "Data final deve ser ISO 8601 v\xE1lida" }).optional(),
-  type: import_zod9.z.enum(["income", "expense"]).optional(),
-  categoryId: import_zod9.z.string().uuid().optional()
-});
-
-// src/modules/seed/dashboard.seed.controller.ts
-var DashboardSeedController = class {
-  async importFromExcel(req, reply) {
-    const payload = req.body || {};
-    const rows = Array.isArray(payload.rows) ? payload.rows : [];
-    reply.status(501).send({ ok: false, message: "Not implemented yet" });
-  }
-  async exportExcel(req, reply) {
-    try {
-      await req.jwtVerify();
-    } catch {
-      throw new AppError("Unauthorized", 401);
-    }
-    const userId = req.user.sub;
-    const filters = exportFilterSchema.parse(req.query);
-    const buffer = await dashboard_export_model_default.exportToExcel(userId, filters);
-    reply.type(
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
-    reply.header(
-      "Content-Disposition",
-      'attachment; filename="transacoes.xlsx"'
-    );
-    return reply.send(buffer);
-  }
-  async exportPdf(req, reply) {
-    try {
-      await req.jwtVerify();
-    } catch {
-      throw new AppError("Unauthorized", 401);
-    }
-    const userId = req.user.sub;
-    const filters = exportFilterSchema.parse(req.query);
-    const buffer = await dashboard_export_model_default.exportToPdf(userId, filters);
-    reply.type("application/pdf");
-    reply.header(
-      "Content-Disposition",
-      'attachment; filename="transacoes.pdf"'
-    );
-    return reply.send(buffer);
-  }
-};
-var dashboard_seed_controller_default = new DashboardSeedController();
-
-// src/modules/seed/dashboard.seed.routes.ts
-async function registerSeedDashboardRoutes(app) {
-  app.post(
-    "/seed/dashboard/import",
-    dashboard_seed_controller_default.importFromExcel.bind(dashboard_seed_controller_default)
-  );
-  app.get(
-    "/seed/dashboard/export/excel",
-    dashboard_seed_controller_default.exportExcel.bind(dashboard_seed_controller_default)
-  );
-  app.get(
-    "/seed/dashboard/export/pdf",
-    dashboard_seed_controller_default.exportPdf.bind(dashboard_seed_controller_default)
-  );
 }
 
 // src/config/app.ts
@@ -1793,7 +2959,14 @@ async function buildApp() {
   await app.register(import_jwt.default, { secret: env.JWT_SECRET });
   await app.register(import_swagger.default, {
     openapi: {
-      info: { title: "FinanceApp API", version: "1.0.0" },
+      info: {
+        title: "FinanceApp API",
+        version: "1.0.0",
+        description: "API para controle financeiro pessoal"
+      },
+      servers: [
+        { url: "http://localhost:3000", description: "Servidor local" }
+      ],
       components: {
         securitySchemes: {
           bearerAuth: {
@@ -1801,13 +2974,51 @@ async function buildApp() {
             scheme: "bearer",
             bearerFormat: "JWT"
           }
+        },
+        schemas: {
+          ExportFilter: {
+            type: "object",
+            properties: {
+              startDate: {
+                type: "string",
+                format: "date",
+                description: "Data inicial (YYYY-MM-DD)"
+              },
+              endDate: {
+                type: "string",
+                format: "date",
+                description: "Data final (YYYY-MM-DD)"
+              },
+              type: {
+                type: "string",
+                enum: ["income", "expense"],
+                description: "Tipo de transa\xE7\xE3o"
+              },
+              categoryId: {
+                type: "string",
+                format: "uuid",
+                description: "ID da categoria"
+              }
+            }
+          },
+          ErrorResponse: {
+            type: "object",
+            properties: {
+              message: { type: "string" },
+              statusCode: { type: "number" }
+            }
+          }
         }
       },
       security: [{ bearerAuth: [] }]
     }
   });
   await app.register(import_swagger_ui.default, {
-    routePrefix: "/docs"
+    routePrefix: "/docs",
+    uiConfig: {
+      docExpansion: "list",
+      deepLinking: false
+    }
   });
   await registerRoutes(app);
   await registerSeedDashboardRoutes(app);
