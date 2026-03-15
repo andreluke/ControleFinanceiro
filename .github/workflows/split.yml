@@ -18,10 +18,8 @@ jobs:
         include:
           - dir: web
             repo: andreluke/WebControleFinanceiro
-
           - dir: api
             repo: andreluke/ApiControleFinanceiro
-
           - dir: mobile
             repo: andreluke/MobileControleFinanceiro
 
@@ -42,9 +40,10 @@ jobs:
 
       - name: Push to target repo
         env:
-          TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           BRANCH=${GITHUB_REF#refs/heads/}
 
-          git push https://x-access-token:$TOKEN@github.com/${{ matrix.repo }} \
-          split-${{ matrix.dir }}:$BRANCH --force
+          git remote add target https://x-access-token:${GH_TOKEN}@github.com/${{ matrix.repo }}.git
+
+          git push target split-${{ matrix.dir }}:$BRANCH --force
