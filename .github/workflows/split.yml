@@ -50,10 +50,12 @@ jobs:
 
       - name: Push to target repo
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+            GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          BRANCH=${GITHUB_REF#refs/heads/}
+            BRANCH=${GITHUB_REF#refs/heads/}
 
-          git remote add target https://x-access-token:${GH_TOKEN}@github.com/${{ matrix.repo }}.git
+            git remote remove origin
 
-          git push target split-${{ matrix.dir }}:$BRANCH --force
+            git remote add origin https://x-access-token:${GH_TOKEN}@github.com/${{ matrix.repo }}.git
+
+            git push origin split-${{ matrix.dir }}:$BRANCH --force
