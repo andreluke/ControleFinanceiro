@@ -9,6 +9,9 @@ on:
       - feature/**
       - hotfix/**
 
+permissions:
+  contents: write
+
 jobs:
   split:
     runs-on: ubuntu-latest
