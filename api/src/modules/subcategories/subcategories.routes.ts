@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { PaymentMethodsController } from "./payment-methods.controller";
+import { SubcategoriesController } from "./subcategories.controller";
 
-export async function registerPaymentMethodsRoutes(app: FastifyInstance) {
-	const paymentMethodsController = new PaymentMethodsController();
+const PUBLIC_ROUTES = ["/health", "/docs"];
 
-	const PUBLIC_ROUTES = ["/health", "/docs"];
+export async function registerSubcategoriesRoutes(app: FastifyInstance) {
+	const controller = new SubcategoriesController();
 
 	app.addHook("onRequest", async (request, reply) => {
 		const path = request.url.split("?")[0];
@@ -19,48 +19,51 @@ export async function registerPaymentMethodsRoutes(app: FastifyInstance) {
 	});
 
 	app.get(
-		"/payment-methods",
+		"/subcategories",
 		{
 			schema: {
-				description: "Lista todos os métodos de pagamento do usuário",
-				tags: ["Payment Methods"],
+				description: "Lista subcategorias do usuário",
+				tags: ["Subcategories"],
 				security: [{ bearerAuth: [] }],
 				querystring: {
 					type: "object",
 					properties: {
-						includeDeleted: { type: "boolean" },
+						categoryId: { type: "string", format: "uuid" },
 					},
 				},
 			},
 		},
-		paymentMethodsController.listPaymentMethods,
+		controller.list,
 	);
 
 	app.post(
-		"/payment-methods",
+		"/subcategories",
 		{
 			schema: {
-				description: "Cria um novo método de pagamento",
-				tags: ["Payment Methods"],
+				description: "Cria uma nova subcategoria",
+				tags: ["Subcategories"],
 				security: [{ bearerAuth: [] }],
 				body: {
 					type: "object",
-					required: ["name"],
+					required: ["name", "categoryId"],
 					properties: {
 						name: { type: "string" },
+						color: { type: "string" },
+						icon: { type: "string" },
+						categoryId: { type: "string", format: "uuid" },
 					},
 				},
 			},
 		},
-		paymentMethodsController.createPaymentMethod,
+		controller.create,
 	);
 
 	app.put(
-		"/payment-methods/:id",
+		"/subcategories/:id",
 		{
 			schema: {
-				description: "Atualiza um método de pagamento",
-				tags: ["Payment Methods"],
+				description: "Atualiza uma subcategoria",
+				tags: ["Subcategories"],
 				security: [{ bearerAuth: [] }],
 				params: {
 					type: "object",
@@ -72,19 +75,22 @@ export async function registerPaymentMethodsRoutes(app: FastifyInstance) {
 					type: "object",
 					properties: {
 						name: { type: "string" },
+						color: { type: "string" },
+						icon: { type: "string" },
+						categoryId: { type: "string", format: "uuid" },
 					},
 				},
 			},
 		},
-		paymentMethodsController.updatePaymentMethod,
+		controller.update,
 	);
 
 	app.delete(
-		"/payment-methods/:id",
+		"/subcategories/:id",
 		{
 			schema: {
-				description: "Soft delete de um método de pagamento",
-				tags: ["Payment Methods"],
+				description: "Soft delete de uma subcategoria",
+				tags: ["Subcategories"],
 				security: [{ bearerAuth: [] }],
 				params: {
 					type: "object",
@@ -94,15 +100,15 @@ export async function registerPaymentMethodsRoutes(app: FastifyInstance) {
 				},
 			},
 		},
-		paymentMethodsController.deletePaymentMethod,
+		controller.delete,
 	);
 
 	app.patch(
-		"/payment-methods/:id/restore",
+		"/subcategories/:id/restore",
 		{
 			schema: {
-				description: "Restaura um método de pagamento deletado",
-				tags: ["Payment Methods"],
+				description: "Restaura uma subcategoria deletada",
+				tags: ["Subcategories"],
 				security: [{ bearerAuth: [] }],
 				params: {
 					type: "object",
@@ -112,6 +118,6 @@ export async function registerPaymentMethodsRoutes(app: FastifyInstance) {
 				},
 			},
 		},
-		paymentMethodsController.restorePaymentMethod,
+		controller.restore,
 	);
 }

@@ -32,15 +32,43 @@ export class BudgetsController {
 			data.year,
 		);
 
-		const hasCategory = existing.find(
-			(b) => b.categoryId === data.categoryId,
-		);
-
-		if (hasCategory) {
-			throw new AppError(
-				"Já existe orçamento para esta categoria neste mês",
-				409,
+		if (data.subcategoryId) {
+			const hasSubcategoryBudget = existing.find(
+				(b) => b.subcategoryId && b.subcategoryId === data.subcategoryId,
 			);
+
+			if (hasSubcategoryBudget) {
+				throw new AppError(
+					"Já existe orçamento para esta subcategoria neste mês",
+					409,
+				);
+			}
+
+			const hasParentBudget = existing.find(
+				(b) => b.categoryId === data.categoryId && !b.subcategoryId,
+			);
+
+			if (!hasParentBudget) {
+				await BudgetsModel.create({
+					userId,
+					categoryId: data.categoryId,
+					subcategoryId: undefined,
+					amount: 0,
+					month: data.month,
+					year: data.year,
+				});
+			}
+		} else {
+			const hasCategory = existing.find(
+				(b) => b.categoryId === data.categoryId,
+			);
+
+			if (hasCategory) {
+				throw new AppError(
+					"Já existe orçamento para esta categoria neste mês",
+					409,
+				);
+			}
 		}
 
 		const [err, budget] = await catchError(
@@ -51,6 +79,7 @@ export class BudgetsController {
 		);
 
 		if (err) {
+			console.error("Error creating budget:", err);
 			throw new AppError("Erro ao criar orçamento", 500);
 		}
 
@@ -93,10 +122,36 @@ export class BudgetsController {
 			throw new AppError("Não autorizado", 403);
 		}
 
+		const deletedSubcategoryId = existing.subcategoryId;
+		const deletedCategoryId = existing.categoryId;
+		const deletedAmount = Number(existing.amount);
+
 		const [err] = await catchError(BudgetsModel.delete(id));
 
 		if (err) {
 			throw new AppError("Erro ao excluir orçamento", 500);
+		}
+
+		if (deletedSubcategoryId && deletedAmount === 0) {
+			const allBudgets = await BudgetsModel.findByUserAndPeriod(
+				userId,
+				Number(existing.month),
+				Number(existing.year),
+			);
+
+			const remainingSubcategoryBudgets = allBudgets.filter(
+				(b) => b.categoryId === deletedCategoryId && b.subcategoryId && b.id !== id
+			);
+
+			if (remainingSubcategoryBudgets.length === 0) {
+				const parentBudget = allBudgets.find(
+					(b) => b.categoryId === deletedCategoryId && !b.subcategoryId
+				);
+
+				if (parentBudget && Number(parentBudget.amount) === 0) {
+					await BudgetsModel.delete(parentBudget.id);
+				}
+			}
 		}
 
 		return reply.status(204).send();

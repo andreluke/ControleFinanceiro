@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const createBudgetSchema = z.object({
 	categoryId: z.string().uuid("ID da categoria inválido"),
+	subcategoryId: z.string().uuid("ID da subcategoria inválido").optional(),
 	amount: z.number().positive("Valor deve ser positivo"),
 	month: z.number().int().min(1).max(12, "Mês inválido"),
 	year: z.number().int().min(2020).max(2100, "Ano inválido"),

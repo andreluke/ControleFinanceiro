@@ -1,10 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import { BudgetsController } from "./budgets.controller";
 
+const PUBLIC_ROUTES = ["/health", "/docs"];
+
 export async function registerBudgetsRoutes(app: FastifyInstance) {
   const controller = new BudgetsController();
 
   app.addHook("onRequest", async (request, reply) => {
+    const path = request.url.split("?")[0];
+    const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(route + "/"));
+    if (isPublicRoute) return;
+
     try {
       await request.jwtVerify();
     } catch (err) {
@@ -43,6 +49,7 @@ export async function registerBudgetsRoutes(app: FastifyInstance) {
           required: ["categoryId", "amount", "month", "year"],
           properties: {
             categoryId: { type: "string", format: "uuid" },
+            subcategoryId: { type: "string", format: "uuid" },
             amount: { type: "number" },
             month: { type: "integer", minimum: 1, maximum: 12 },
             year: { type: "integer" },

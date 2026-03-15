@@ -29,6 +29,27 @@
       "when": 1773522111780,
       "tag": "0003_loose_bulldozer",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1773525000000,
+      "tag": "0004_add_subcategories",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1773527288480,
+      "tag": "0005_fluffy_la_nuit",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1773528970658,
+      "tag": "0006_past_randall_flagg",
+      "breakpoints": true
     }
   ]
 }

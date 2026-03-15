@@ -6,6 +6,7 @@ import swaggerUi from "@fastify/swagger-ui";
 import Fastify from "fastify";
 import { errorHandler } from "../errors/errorHandler";
 import { registerBudgetsRoutes } from "../modules/budgets/budgets.routes";
+import { registerSubcategoriesRoutes } from "../modules/subcategories/subcategories.routes";
 import { registerSeedDashboardRoutes } from "../modules/seed/dashboard.seed.routes";
 import { env } from "../settings/env";
 import { registerRoutes } from "./routes";
@@ -100,6 +101,8 @@ export async function buildApp() {
 	await registerRoutes(app);
 	// Budgets (Metas e Orçamentos)
 	await registerBudgetsRoutes(app);
+	// Subcategories
+	await registerSubcategoriesRoutes(app);
 	// Seed dashboard routes (Excel/CSV import and sample)
 	await registerSeedDashboardRoutes(app);
 	app.setErrorHandler(errorHandler);

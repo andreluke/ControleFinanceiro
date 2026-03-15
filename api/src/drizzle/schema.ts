@@ -44,6 +44,20 @@ export const categories = pgTable("categories", {
 	deletedAt: timestamp("deleted_at"),
 });
 
+export const subcategories = pgTable("subcategories", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	userId: uuid("user_id")
+		.references(() => users.id, { onDelete: "cascade" })
+		.notNull(),
+	categoryId: uuid("category_id")
+		.references(() => categories.id, { onDelete: "cascade" })
+		.notNull(),
+	name: text("name").notNull(),
+	color: text("color").notNull().default("#3B82F6"),
+	icon: text("icon"),
+	deletedAt: timestamp("deleted_at"),
+});
+
 export const paymentMethods = pgTable("payment_methods", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	userId: uuid("user_id")
@@ -59,6 +73,7 @@ export const transactions = pgTable("transactions", {
 		.references(() => users.id, { onDelete: "cascade" })
 		.notNull(),
 	categoryId: uuid("category_id").references(() => categories.id),
+	subcategoryId: uuid("subcategory_id").references(() => subcategories.id),
 	paymentMethodId: uuid("payment_method_id").references(
 		() => paymentMethods.id,
 	),
@@ -80,6 +95,7 @@ export const recurringTransactions = pgTable("recurring_transactions", {
 	amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
 	type: transactionTypeEnum("type").notNull(),
 	categoryId: uuid("category_id").references(() => categories.id),
+	subcategoryId: uuid("subcategory_id").references(() => subcategories.id),
 	paymentMethodId: uuid("payment_method_id").references(
 		() => paymentMethods.id,
 	),
@@ -103,6 +119,7 @@ export const budgets = pgTable("budgets", {
 	categoryId: uuid("category_id")
 		.references(() => categories.id)
 		.notNull(),
+	subcategoryId: uuid("subcategory_id").references(() => subcategories.id),
 	amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
 	period: budgetPeriodEnum("period").notNull().default("monthly"),
 	month: numeric("month", { precision: 2 }).notNull(),

@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, lte, sum } from "drizzle-orm";
 import { db } from "../../drizzle/client";
-import { budgets, categories, transactions } from "../../drizzle/schema";
+import { budgets, categories, subcategories, transactions } from "../../drizzle/schema";
 import type { Budget, BudgetWithCategory, BudgetSummary } from "./budgets.types";
 
 function toNumber(value: unknown): number {
@@ -14,6 +14,7 @@ export class BudgetsModel {
 	async create(data: {
 		userId: string;
 		categoryId: string;
+		subcategoryId?: string;
 		amount: number;
 		month: number;
 		year: number;
@@ -23,6 +24,7 @@ export class BudgetsModel {
 			.values({
 				userId: data.userId,
 				categoryId: data.categoryId,
+				subcategoryId: data.subcategoryId || null,
 				amount: String(data.amount),
 				month: String(data.month),
 				year: String(data.year),
@@ -77,12 +79,16 @@ export class BudgetsModel {
 				month: budgets.month,
 				year: budgets.year,
 				categoryId: budgets.categoryId,
+				subcategoryId: budgets.subcategoryId,
 				categoryName: categories.name,
 				categoryColor: categories.color,
+				subcategoryName: subcategories.name,
+				subcategoryColor: subcategories.color,
 				createdAt: budgets.createdAt,
 			})
 			.from(budgets)
 			.leftJoin(categories, eq(budgets.categoryId, categories.id))
+			.leftJoin(subcategories, eq(budgets.subcategoryId, subcategories.id))
 			.where(
 				and(
 					eq(budgets.userId, userId),
@@ -95,18 +101,22 @@ export class BudgetsModel {
 			userBudgets.map(async (budget) => {
 				const amountNum = toNumber(budget.amount);
 
+				const conditions = [
+					eq(transactions.userId, userId),
+					eq(transactions.categoryId, budget.categoryId),
+					eq(transactions.type, "expense" as const),
+					gte(transactions.date, startDate),
+					lte(transactions.date, endDate),
+				];
+
+				if (budget.subcategoryId) {
+					conditions.push(eq(transactions.subcategoryId, budget.subcategoryId));
+				}
+
 				const [result] = await db
 					.select({ total: sum(transactions.amount) })
 					.from(transactions)
-					.where(
-						and(
-							eq(transactions.userId, userId),
-							eq(transactions.categoryId, budget.categoryId),
-							eq(transactions.type, "expense" as const),
-							gte(transactions.date, startDate),
-							lte(transactions.date, endDate),
-						),
-					);
+					.where(and(...conditions));
 
 				const spent = toNumber(result?.total);
 				const percentage = amountNum > 0 ? (spent / amountNum) * 100 : 0;
@@ -117,8 +127,11 @@ export class BudgetsModel {
 					month: toNumber(budget.month),
 					year: toNumber(budget.year),
 					categoryId: budget.categoryId,
+					subcategoryId: budget.subcategoryId,
 					categoryName: budget.categoryName || "Sem categoria",
 					categoryColor: budget.categoryColor || "#6B7280",
+					subcategoryName: budget.subcategoryName || null,
+					subcategoryColor: budget.subcategoryColor || null,
 					spent,
 					percentage,
 					remaining: amountNum - spent,
@@ -134,11 +147,13 @@ export class BudgetsModel {
 	async getSummary(userId: string, month: number, year: number): Promise<BudgetSummary> {
 		const budgetsWithCategory = await this.getWithCategory(userId, month, year);
 
-		const totalBudgeted = budgetsWithCategory.reduce((sum, b) => sum + b.amount, 0);
-		const totalSpent = budgetsWithCategory.reduce((sum, b) => sum + b.spent, 0);
+		const parentBudgets = budgetsWithCategory.filter((b) => !b.subcategoryId);
+
+		const totalBudgeted = parentBudgets.reduce((sum, b) => sum + b.amount, 0);
+		const totalSpent = parentBudgets.reduce((sum, b) => sum + b.spent, 0);
 		const totalRemaining = totalBudgeted - totalSpent;
-		const overBudgetCount = budgetsWithCategory.filter((b) => b.isOverBudget).length;
-		const nearLimitCount = budgetsWithCategory.filter(
+		const overBudgetCount = parentBudgets.filter((b) => b.isOverBudget).length;
+		const nearLimitCount = parentBudgets.filter(
 			(b) => b.percentage >= 80 && b.percentage <= 100,
 		).length;
 

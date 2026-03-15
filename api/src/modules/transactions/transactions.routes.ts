@@ -4,7 +4,13 @@ import { TransactionsController } from "./transactions.controller";
 export async function registerTransactionsRoutes(app: FastifyInstance) {
 	const transactionsController = new TransactionsController();
 
+	const PUBLIC_ROUTES = ["/health", "/docs"];
+
 	app.addHook("onRequest", async (request, reply) => {
+		const path = request.url.split("?")[0];
+		const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(`${route}/`));
+		if (isPublicRoute) return;
+
 		try {
 			await request.jwtVerify();
 		} catch (err) {
@@ -65,8 +71,9 @@ export async function registerTransactionsRoutes(app: FastifyInstance) {
 						description: { type: "string" },
 						amount: { type: "number" },
 						type: { type: "string", enum: ["income", "expense"] },
-						date: { type: "string", format: "date" },
+						date: { type: "string" },
 						categoryId: { type: "string", format: "uuid" },
+						subcategoryId: { type: "string", format: "uuid" },
 						paymentMethodId: { type: "string", format: "uuid" },
 					},
 				},
@@ -94,8 +101,9 @@ export async function registerTransactionsRoutes(app: FastifyInstance) {
 						description: { type: "string" },
 						amount: { type: "number" },
 						type: { type: "string", enum: ["income", "expense"] },
-						date: { type: "string", format: "date" },
+						date: { type: "string" },
 						categoryId: { type: "string", format: "uuid" },
+						subcategoryId: { type: "string", format: "uuid" },
 						paymentMethodId: { type: "string", format: "uuid" },
 					},
 				},

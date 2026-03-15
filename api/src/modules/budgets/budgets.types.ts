@@ -9,8 +9,11 @@ export interface BudgetWithCategory {
 	month: number;
 	year: number;
 	categoryId: string;
+	subcategoryId?: string | null;
 	categoryName: string;
 	categoryColor: string;
+	subcategoryName?: string | null;
+	subcategoryColor?: string | null;
 	spent: number;
 	percentage: number;
 	remaining: number;
@@ -29,6 +32,7 @@ export interface BudgetSummary {
 
 export interface CreateBudgetInput {
 	categoryId: string;
+	subcategoryId?: string;
 	amount: number;
 	month: number;
 	year: number;

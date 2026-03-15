@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "../../drizzle/client";
-import { categories, transactions } from "../../drizzle/schema";
+import { categories, subcategories, transactions } from "../../drizzle/schema";
 import type { SummaryPeriod } from "./summary.schema";
 
 interface SummaryFilters {
