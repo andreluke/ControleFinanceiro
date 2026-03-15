@@ -41,21 +41,20 @@ jobs:
         run: |
           git subtree split --prefix=${{ matrix.dir }} -b split-${{ matrix.dir }}
 
-
       - name: Test token access
         env:
-           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-            curl -H "Authorization: token $GH_TOKEN" https://api.github.com/user
+          curl -H "Authorization: token $GH_TOKEN" https://api.github.com/user
 
       - name: Push to target repo
         env:
-            GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-            BRANCH=${GITHUB_REF#refs/heads/}
+          BRANCH=${GITHUB_REF#refs/heads/}
 
-            git remote remove origin
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
 
-            git remote add origin https://x-access-token:${GH_TOKEN}@github.com/${{ matrix.repo }}.git
+          git remote set-url origin https://github.com/${{ matrix.repo }}.git
 
-            git push origin split-${{ matrix.dir }}:$BRANCH --force
+          git push origin split-${{ matrix.dir }}:$BRANCH --force
