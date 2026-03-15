@@ -13,7 +13,31 @@ permissions:
   contents: write
 
 jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      api: ${{ steps.filter.outputs.api }}
+      mobile: ${{ steps.filter.outputs.mobile }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            web:
+              - 'web/**'
+            api:
+              - 'api/**'
+            mobile:
+              - 'mobile/**'
+
   split:
+    needs: detect
     runs-on: ubuntu-latest
 
     strategy:
@@ -21,44 +45,58 @@ jobs:
         include:
           - dir: web
             repo: andreluke/WebControleFinanceiro
+            changed: ${{ needs.detect.outputs.web }}
+
           - dir: api
             repo: andreluke/ApiControleFinanceiro
+            changed: ${{ needs.detect.outputs.api }}
+
           - dir: mobile
             repo: andreluke/MobileControleFinanceiro
+            changed: ${{ needs.detect.outputs.mobile }}
 
     steps:
+      - name: Skip if no changes
+        if: matrix.changed != 'true'
+        run: echo "No changes in ${{ matrix.dir }}"
+
       - name: Checkout repo
+        if: matrix.changed == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Setup git
+        if: matrix.changed == 'true'
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
 
       - name: Create split branch
+        if: matrix.changed == 'true'
         run: |
           git subtree split --prefix=${{ matrix.dir }} -b split-${{ matrix.dir }}
 
       - name: Test token access
+        if: matrix.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           curl -H "Authorization: token $GH_TOKEN" https://api.github.com/user
 
       - name: Push to target repo
+        if: matrix.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           BRANCH=${GITHUB_REF#refs/heads/}
 
-          # Remove todos os extraheaders injetados pelo actions/checkout
+          # Remove headers injetados pelo checkout
           git config --global --unset-all http.https://github.com/.extraheader || true
           git config --local --unset-all http.https://github.com/.extraheader || true
           git config --local --unset-all http.extraheader || true
 
-          # Define o token correto sem quebra de linha no base64
+          # Define autenticação correta
           B64_TOKEN=$(echo -n "x-access-token:${GH_TOKEN}" | base64 -w 0)
           git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic ${B64_TOKEN}"
 

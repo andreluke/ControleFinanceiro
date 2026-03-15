@@ -160,9 +160,25 @@ export class TransactionModel {
 		userId: string,
 		data: UpdateTransactionInput,
 	) {
-		const updateData: any = { ...data };
-		if (data.date) updateData.date = new Date(data.date);
-		if (data.amount) updateData.amount = data.amount.toString();
+		const updateData: {
+			description?: string;
+			subDescription?: string;
+			amount?: string;
+			type?: "income" | "expense";
+			date?: Date;
+			categoryId?: string;
+			subcategoryId?: string;
+			paymentMethodId?: string;
+		} = {};
+
+		if (data.description !== undefined) updateData.description = data.description;
+		if (data.subDescription !== undefined) updateData.subDescription = data.subDescription;
+		if (data.amount !== undefined) updateData.amount = data.amount.toString();
+		if (data.type !== undefined) updateData.type = data.type;
+		if (data.date !== undefined) updateData.date = new Date(data.date);
+		if (data.categoryId !== undefined) updateData.categoryId = data.categoryId;
+		if (data.subcategoryId !== undefined) updateData.subcategoryId = data.subcategoryId;
+		if (data.paymentMethodId !== undefined) updateData.paymentMethodId = data.paymentMethodId;
 
 		const [updated] = await db
 			.update(transactions)
