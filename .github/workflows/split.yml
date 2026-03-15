@@ -64,4 +64,4 @@ jobs:
 
           git remote set-url origin https://github.com/${{ matrix.repo }}.git
 
-          git push origin split-${{ matrix.dir }}:$BRANCH --forcee
+          git push origin split-${{ matrix.dir }}:$BRANCH --force
