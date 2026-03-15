@@ -41,6 +41,13 @@ jobs:
         run: |
           git subtree split --prefix=${{ matrix.dir }} -b split-${{ matrix.dir }}
 
+
+      - name: Test token access
+        env:
+           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+            curl -H "Authorization: token $GH_TOKEN" https://api.github.com/user
+
       - name: Push to target repo
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -50,9 +57,3 @@ jobs:
           git remote add target https://x-access-token:${GH_TOKEN}@github.com/${{ matrix.repo }}.git
 
           git push target split-${{ matrix.dir }}:$BRANCH --force
-
-      - name: Test token access
-        env:
-           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-            curl -H "Authorization: token $GH_TOKEN" https://api.github.com/user
