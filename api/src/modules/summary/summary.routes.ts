@@ -4,7 +4,16 @@ import { SummaryController } from "./summary.controller";
 export async function registerSummaryRoutes(app: FastifyInstance) {
 	const summaryController = new SummaryController();
 
+	const PUBLIC_ROUTES = ["/health", "/docs"];
+
 	app.addHook("onRequest", async (request, reply) => {
+		const path = request.url.split("?")[0];
+		const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(route + "/"));
+		if (isPublicRoute) return;
+
+		// Only apply JWT verification to /summary routes
+		if (!path.startsWith("/summary")) return;
+
 		try {
 			await request.jwtVerify();
 		} catch (err) {

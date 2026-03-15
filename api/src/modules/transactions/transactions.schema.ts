@@ -7,8 +7,9 @@ export const createTransactionSchema = z.object({
 	type: z.enum(["income", "expense"], {
 		errorMap: () => ({ message: "O tipo deve ser income ou expense" }),
 	}),
-	date: z.string().datetime({ message: "A data deve ser ISO 8601 válida" }),
+	date: z.string().min(1, "Data é obrigatória"),
 	categoryId: z.string().uuid("ID de categoria inválido").optional(),
+	subcategoryId: z.string().uuid("ID de subcategoria inválido").optional(),
 	paymentMethodId: z
 		.string()
 		.uuid("ID de método de pagamento inválido")

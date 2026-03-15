@@ -8,6 +8,7 @@ const recurringTransactionBaseSchema = z.object({
 		errorMap: () => ({ message: "O tipo deve ser income ou expense" }),
 	}),
 	categoryId: z.string().uuid("ID de categoria inválido").optional(),
+	subcategoryId: z.string().uuid("ID de subcategoria inválido").optional(),
 	paymentMethodId: z
 		.string()
 		.uuid("ID de método de pagamento inválido")

@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui'
 import { useCreateTransaction, useUpdateTransaction } from '@/hooks/useTransactions'
+import { useSubcategories } from '@/hooks/useSubcategories'
 import { useToast } from '@/hooks/use-toast'
 
 interface TransactionModalProps {
@@ -35,6 +36,7 @@ interface TransactionModalProps {
   initialCategoryId?: string
   initialPaymentMethodId?: string
   onOpenCategoryModal?: () => void
+  onOpenSubcategoryModal?: () => void
   onOpenPaymentMethodModal?: () => void
   onSuccess?: () => void
 }
@@ -46,6 +48,7 @@ const defaultValues: TransactionFormData = {
   type: 'expense',
   date: format(new Date(), 'yyyy-MM-dd'),
   categoryId: 'none',
+  subcategoryId: 'none',
   paymentMethodId: 'none',
 }
 
@@ -79,6 +82,7 @@ export function TransactionModal({
   initialCategoryId,
   initialPaymentMethodId,
   onOpenCategoryModal,
+  onOpenSubcategoryModal,
   onOpenPaymentMethodModal,
 }: TransactionModalProps) {
   const { toast } = useToast()
@@ -93,8 +97,15 @@ export function TransactionModal({
 
   const selectedType = useWatch({ control: form.control, name: 'type' })
   const selectedCategoryId = useWatch({ control: form.control, name: 'categoryId' })
+  const selectedSubcategoryId = useWatch({ control: form.control, name: 'subcategoryId' })
   const selectedPaymentMethodId = useWatch({ control: form.control, name: 'paymentMethodId' })
   const { ref: dateFieldRef, ...dateField } = form.register('date')
+
+  const { data: allSubcategories = [] } = useSubcategories()
+
+  const subcategories = selectedCategoryId && selectedCategoryId !== 'none'
+    ? allSubcategories.filter((s: { categoryId: string }) => s.categoryId === selectedCategoryId)
+    : []
 
   const isEditing = !!transaction
   const isLoading = createTransaction.isPending || updateTransaction.isPending
@@ -109,12 +120,14 @@ export function TransactionModal({
           type: transaction.type,
           date: toInputDate(transaction.date),
           categoryId: transaction.categoryId ?? 'none',
+          subcategoryId: transaction.subcategoryId ?? 'none',
           paymentMethodId: transaction.paymentMethodId ?? 'none',
         })
       } else {
         form.reset({
           ...defaultValues,
           categoryId: initialCategoryId ?? 'none',
+          subcategoryId: 'none',
           paymentMethodId: initialPaymentMethodId ?? 'none',
         })
       }
@@ -139,6 +152,7 @@ export function TransactionModal({
       type: values.type,
       date: toApiDate(values.date),
       categoryId: values.categoryId && values.categoryId !== 'none' ? values.categoryId : undefined,
+      subcategoryId: values.subcategoryId && values.subcategoryId !== 'none' ? values.subcategoryId : undefined,
       paymentMethodId: values.paymentMethodId && values.paymentMethodId !== 'none' ? values.paymentMethodId : undefined,
     }
 
@@ -169,7 +183,7 @@ export function TransactionModal({
           <Label htmlFor="description">Descricao</Label>
           <Input id="description" placeholder="Ex: Aluguel" {...form.register('description')} />
           {form.formState.errors.description && (
-            <p className="text-xs text-danger">{form.formState.errors.description.message}</p>
+            <p className="text-danger text-xs">{form.formState.errors.description.message}</p>
           )}
         </div>
 
@@ -177,15 +191,15 @@ export function TransactionModal({
           <Label htmlFor="subDescription">Observacao (opcional)</Label>
           <Input id="subDescription" placeholder="Ex: Pagamento mensal" {...form.register('subDescription')} />
           {form.formState.errors.subDescription && (
-            <p className="text-xs text-danger">{form.formState.errors.subDescription.message}</p>
+            <p className="text-danger text-xs">{form.formState.errors.subDescription.message}</p>
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="gap-4 grid grid-cols-1 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="amount">Valor</Label>
             <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-secondary">R$</span>
+              <span className="top-1/2 left-3 absolute font-medium text-secondary text-sm -translate-y-1/2 pointer-events-none">R$</span>
               <Controller
                 control={form.control}
                 name="amount"
@@ -206,7 +220,7 @@ export function TransactionModal({
               />
             </div>
             {form.formState.errors.amount && (
-              <p className="text-xs text-danger">{form.formState.errors.amount.message}</p>
+              <p className="text-danger text-xs">{form.formState.errors.amount.message}</p>
             )}
           </div>
 
@@ -224,7 +238,7 @@ export function TransactionModal({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="gap-4 grid grid-cols-1 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="date">Data</Label>
             <div className="relative">
@@ -235,31 +249,31 @@ export function TransactionModal({
                   dateInputRef.current = element
                   dateFieldRef(element)
                 }}
-                className="pr-10 [color-scheme:dark] [appearance:textfield] [&::-webkit-calendar-picker-indicator]:pointer-events-none [&::-webkit-calendar-picker-indicator]:opacity-0"
-                {...dateField}
+                className="[&::-webkit-calendar-picker-indicator]:opacity-0 pr-10 [&::-webkit-calendar-picker-indicator]:pointer-events-none [color-scheme:dark] [appearance:textfield]"
+                {...dateField}  
               />
               <button
                 type="button"
                 aria-label="Abrir calendario"
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-secondary hover:text-foreground"
+                className="top-1/2 right-2 absolute p-1 rounded text-secondary hover:text-foreground -translate-y-1/2"
                 onClick={openDatePicker}
               >
-                <CalendarDays className="h-4 w-4" />
+                <CalendarDays className="w-4 h-4" />
               </button>
             </div>
             {form.formState.errors.date && (
-              <p className="text-xs text-danger">{form.formState.errors.date.message}</p>
+              <p className="text-danger text-xs">{form.formState.errors.date.message}</p>
             )}
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex justify-between items-center">
               <Label>Categoria</Label>
-              <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-primary" onClick={onOpenCategoryModal}>
+              <Button type="button" variant="ghost" size="sm" className="px-2 h-7 text-primary" onClick={onOpenCategoryModal}>
                 Nova
               </Button>
             </div>
-            <Select value={selectedCategoryId || 'none'} onValueChange={(value) => form.setValue('categoryId', value)}>
+            <Select value={selectedCategoryId || 'none'} onValueChange={(value) => { form.setValue('categoryId', value); form.setValue('subcategoryId', 'none'); }}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione" />
               </SelectTrigger>
@@ -273,12 +287,36 @@ export function TransactionModal({
               </SelectContent>
             </Select>
           </div>
+
+          {selectedCategoryId && selectedCategoryId !== 'none' && (
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <Label>Subcategoria</Label>
+                <Button type="button" variant="ghost" size="sm" className="px-2 h-7 text-primary" onClick={onOpenSubcategoryModal}>
+                  Nova
+                </Button>
+              </div>
+              <Select value={selectedSubcategoryId || 'none'} onValueChange={(value) => form.setValue('subcategoryId', value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem subcategoria</SelectItem>
+                  {subcategories.map((sub: { id: string; name: string }) => (
+                    <SelectItem key={sub.id} value={sub.id}>
+                      {sub.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
+          <div className="flex justify-between items-center">
             <Label>Metodo de pagamento</Label>
-            <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-primary" onClick={onOpenPaymentMethodModal}>
+            <Button type="button" variant="ghost" size="sm" className="px-2 h-7 text-primary" onClick={onOpenPaymentMethodModal}>
               Novo
             </Button>
           </div>
@@ -304,7 +342,7 @@ export function TransactionModal({
           <Button type="submit" disabled={isLoading}>
             {isLoading ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
                 Salvando...
               </>
             ) : isEditing ? (

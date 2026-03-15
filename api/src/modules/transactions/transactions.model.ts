@@ -1,6 +1,6 @@
 import { and, count, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "../../drizzle/client";
-import { categories, paymentMethods, transactions } from "../../drizzle/schema";
+import { categories, paymentMethods, subcategories, transactions } from "../../drizzle/schema";
 import type {
 	CreateTransactionInput,
 	ListTransactionsInput,
@@ -23,11 +23,17 @@ export class TransactionModel {
 				type: transactions.type,
 				date: transactions.date,
 				categoryId: transactions.categoryId,
+				subcategoryId: transactions.subcategoryId,
 				category: {
 					id: categories.id,
 					name: categories.name,
 					color: categories.color,
 					icon: categories.icon,
+				},
+				subcategory: {
+					id: subcategories.id,
+					name: subcategories.name,
+					color: subcategories.color,
 				},
 				paymentMethodId: transactions.paymentMethodId,
 				paymentMethod: {
@@ -38,6 +44,7 @@ export class TransactionModel {
 			})
 			.from(transactions)
 			.leftJoin(categories, eq(transactions.categoryId, categories.id))
+			.leftJoin(subcategories, eq(transactions.subcategoryId, subcategories.id))
 			.leftJoin(
 				paymentMethods,
 				eq(transactions.paymentMethodId, paymentMethods.id),
@@ -141,6 +148,7 @@ export class TransactionModel {
 				type: data.type,
 				date: new Date(data.date),
 				categoryId: data.categoryId,
+				subcategoryId: data.subcategoryId,
 				paymentMethodId: data.paymentMethodId,
 			})
 			.returning();
@@ -152,7 +160,6 @@ export class TransactionModel {
 		userId: string,
 		data: UpdateTransactionInput,
 	) {
-		// biome-ignore lint/suspicious/noExplicitAny: Required for partial dynamic update
 		const updateData: any = { ...data };
 		if (data.date) updateData.date = new Date(data.date);
 		if (data.amount) updateData.amount = data.amount.toString();

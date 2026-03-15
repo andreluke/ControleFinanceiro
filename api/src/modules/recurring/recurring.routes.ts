@@ -4,7 +4,16 @@ import { RecurringTransactionController } from "./recurring.controller";
 export async function registerRecurringRoutes(app: FastifyInstance) {
 	const controller = new RecurringTransactionController();
 
+	const PUBLIC_ROUTES = ["/health", "/docs"];
+
 	app.addHook("onRequest", async (request, reply) => {
+		const path = request.url.split("?")[0];
+		const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(route + "/"));
+		if (isPublicRoute) return;
+
+		// Only apply JWT verification to /recurring routes
+		if (!path.startsWith("/recurring")) return;
+
 		try {
 			await request.jwtVerify();
 		} catch (err) {

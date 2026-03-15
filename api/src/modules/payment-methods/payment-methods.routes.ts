@@ -4,7 +4,16 @@ import { PaymentMethodsController } from "./payment-methods.controller";
 export async function registerPaymentMethodsRoutes(app: FastifyInstance) {
 	const paymentMethodsController = new PaymentMethodsController();
 
+	const PUBLIC_ROUTES = ["/health", "/docs"];
+
 	app.addHook("onRequest", async (request, reply) => {
+		const path = request.url.split("?")[0];
+		const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(route + "/"));
+		if (isPublicRoute) return;
+
+		// Only apply JWT verification to /payment-methods routes
+		if (!path.startsWith("/payment-methods")) return;
+
 		try {
 			await request.jwtVerify();
 		} catch (err) {

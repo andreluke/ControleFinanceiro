@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { format, subMonths } from 'date-fns'
-import { Edit, Loader2, Plus, Search, Trash2 } from 'lucide-react'
+import { Edit, Loader2, Plus, Search, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { Transaction, TransactionType } from '@/types/transaction'
 import { formatBRL } from '@/utils/currency'
 import { formatDate } from '@/utils/date'
@@ -20,10 +20,12 @@ const monthFilterOptions = [
   { value: 'current', label: 'Este mes' },
   { value: 'previous', label: 'Mes passado' },
   { value: 'two_months_ago', label: '2 meses atras' },
+  { value: 'specific', label: 'Período Específico' },
 ] as const
 
-function monthParamFromFilter(filter: string) {
+function monthParamFromFilter(filter: string, specificMonth?: string) {
   if (filter === 'all') return undefined
+  if (filter === 'specific' && specificMonth) return specificMonth
   if (filter === 'current') return format(new Date(), 'yyyy-MM')
   if (filter === 'previous') return format(subMonths(new Date(), 1), 'yyyy-MM')
   return format(subMonths(new Date(), 2), 'yyyy-MM')
@@ -32,7 +34,7 @@ function monthParamFromFilter(filter: string) {
 export default function TransfersPage() {
   const { toast } = useToast()
 
-  const { filters, update } = useTransactionFilters()
+  const { filters, update, updatePeriod } = useTransactionFilters()
   const modals = useTransactionModals(filters.new)
 
   useEffect(() => {
@@ -46,7 +48,7 @@ export default function TransfersPage() {
   const { data: transactionsResponse, isLoading, isError, error } = useTransactions({
     page: filters.page,
     limit: pageSize,
-    month: monthParamFromFilter(filters.period),
+    month: monthParamFromFilter(filters.period, filters.specificMonth),
     type: transactionType,
   })
 
@@ -85,15 +87,18 @@ export default function TransfersPage() {
           onCreateClick={modals.openCreate}
           onCategoryClick={() => modals.setCategoryModal(true)}
           onPaymentMethodClick={() => modals.setPaymentModal(true)}
+          onSubcategoryClick={() => modals.setSubcategoryModal(true)}
         />
 
         <CardFilters
           query={filters.query}
           type={filters.type}
           period={filters.period}
+          specificMonth={filters.specificMonth}
           onQueryChange={(q) => update({ q, page: 1 })}
           onTypeChange={(t) => update({ type: t, page: 1 })}
-          onPeriodChange={(p) => update({ period: p, page: 1 })}
+          onPeriodChange={(p) => updatePeriod(p, filters.specificMonth)}
+          onSpecificMonthChange={(m) => updatePeriod('specific', m)}
         />
 
         <Card className="bg-card border-border">
@@ -126,20 +131,27 @@ export default function TransfersPage() {
       <TransfersModals
         transactionOpen={modals.transactionModal}
         categoryOpen={modals.categoryModal}
+        subcategoryOpen={modals.subcategoryModal}
         paymentOpen={modals.paymentModal}
         transaction={modals.editingTransaction}
         categories={categories}
         paymentMethods={paymentMethods}
+        selectedCategoryId={modals.selectedCategoryId}
         initialCategoryId={modals.initialCategoryId}
         initialPaymentMethodId={modals.initialPaymentMethodId}
         onCloseTransaction={modals.closeTransaction}
         onCloseCategory={() => modals.setCategoryModal(false)}
+        onCloseSubcategory={() => modals.setSubcategoryModal(false)}
         onClosePayment={() => modals.setPaymentModal(false)}
         onCategorySelect={modals.openCategorySelect}
         onPaymentMethodSelect={modals.openPaymentMethodSelect}
         onOpenCategory={() => {
           modals.closeTransaction()
           modals.setCategoryModal(true)
+        }}
+        onOpenSubcategory={() => {
+          modals.closeTransaction()
+          modals.setSubcategoryModal(true)
         }}
         onOpenPayment={() => {
           modals.closeTransaction()
@@ -152,10 +164,11 @@ export default function TransfersPage() {
   )
 }
 
-function Header({ onCreateClick, onCategoryClick, onPaymentMethodClick }: {
+function Header({ onCreateClick, onCategoryClick, onPaymentMethodClick, onSubcategoryClick }: {
   onCreateClick: () => void
   onCategoryClick: () => void
   onPaymentMethodClick: () => void
+  onSubcategoryClick: () => void
 }) {
   return (
     <div className="flex md:flex-row flex-col md:justify-between md:items-start gap-4 mb-8">
@@ -165,6 +178,7 @@ function Header({ onCreateClick, onCategoryClick, onPaymentMethodClick }: {
       </div>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" onClick={onCategoryClick}>+ Categoria</Button>
+        <Button variant="outline" onClick={onSubcategoryClick}>+ Subcategoria</Button>
         <Button variant="outline" onClick={onPaymentMethodClick}>+ Metodo</Button>
         <Button className="bg-primary hover:bg-primary/90 shadow-cta text-white" onClick={onCreateClick}>
           <Plus className="w-4 h-4" />
@@ -175,13 +189,15 @@ function Header({ onCreateClick, onCategoryClick, onPaymentMethodClick }: {
   )
 }
 
-function CardFilters({ query, type, period, onQueryChange, onTypeChange, onPeriodChange }: {
+function CardFilters({ query, type, period, specificMonth, onQueryChange, onTypeChange, onPeriodChange, onSpecificMonthChange }: {
   query: string
   type: string
   period: string
+  specificMonth?: string
   onQueryChange: (q: string) => void
   onTypeChange: (t: string) => void
   onPeriodChange: (p: string) => void
+  onSpecificMonthChange: (m: string) => void
 }) {
   return (
     <Card className="bg-card mb-6 border-border">
@@ -219,6 +235,54 @@ function CardFilters({ query, type, period, onQueryChange, onTypeChange, onPerio
             </SelectContent>
           </Select>
         </div>
+        
+        {period === 'specific' && (
+          <div className="mt-4 flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => {
+                if (specificMonth) {
+                  const [year, month] = specificMonth.split('-')
+                  const current = new Date(parseInt(year), parseInt(month) - 1, 1)
+                  const prev = new Date(current)
+                  prev.setMonth(prev.getMonth() - 1)
+                  onSpecificMonthChange(format(prev, 'yyyy-MM'))
+                } else {
+                  onSpecificMonthChange(format(subMonths(new Date(), 1), 'yyyy-MM'))
+                }
+              }}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Input
+              type="month"
+              value={specificMonth || ''}
+              onChange={(e) => onSpecificMonthChange(e.target.value)}
+              className="bg-background border-border text-foreground w-40"
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => {
+                if (specificMonth) {
+                  const [year, month] = specificMonth.split('-')
+                  const current = new Date(parseInt(year), parseInt(month) - 1, 1)
+                  const next = new Date(current)
+                  next.setMonth(next.getMonth() + 1)
+                  const now = new Date()
+                  if (next <= now) {
+                    onSpecificMonthChange(format(next, 'yyyy-MM'))
+                  }
+                }
+              }}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -277,17 +341,28 @@ function TransactionTable({ transactions, onEdit, onDelete }: {
                 {transaction.subDescription && <p className="text-secondary text-xs">{transaction.subDescription}</p>}
               </td>
               <td className="px-3 py-4">
-                {transaction.category ? (
-                  <span
-                    className="inline-flex items-center gap-2 px-2 py-1 rounded-md font-medium text-xs"
-                    style={{ backgroundColor: `${transaction.category.color}22`, color: transaction.category.color }}
-                  >
-                    <span className="rounded-full w-2 h-2" style={{ backgroundColor: transaction.category.color }} />
-                    {transaction.category.name}
-                  </span>
-                ) : (
-                  <span className="text-secondary">-</span>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  {transaction.category ? (
+                    <span
+                      className="inline-flex items-center gap-2 px-2 py-1 rounded-md font-medium text-xs"
+                      style={{ backgroundColor: `${transaction.category.color}22`, color: transaction.category.color }}
+                    >
+                      <span className="rounded-full w-2 h-2" style={{ backgroundColor: transaction.category.color }} />
+                      {transaction.category.name}
+                    </span>
+                  ) : (
+                    <span className="text-secondary">-</span>
+                  )}
+                  {transaction.subcategory && (
+                    <span
+                      className="inline-flex items-center gap-2 px-2 py-1 rounded-md font-medium text-xs"
+                      style={{ backgroundColor: `${transaction.subcategory.color}22`, color: transaction.subcategory.color }}
+                    >
+                      <span className="rounded-full w-2 h-2" style={{ backgroundColor: transaction.subcategory.color }} />
+                      {transaction.subcategory.name}
+                    </span>
+                  )}
+                </div>
               </td>
               <td className="px-3 py-4 text-secondary">{transaction.paymentMethod?.name ?? '-'}</td>
               <td className={`px-3 py-4 font-semibold ${transaction.type === 'income' ? 'text-success' : 'text-danger'}`}>

@@ -1,10 +1,19 @@
 import type { FastifyInstance } from "fastify";
 import { CategoriesController } from "./categories.controller";
 
+const PUBLIC_ROUTES = ["/health", "/docs"];
+
 export async function registerCategoriesRoutes(app: FastifyInstance) {
 	const categoriesController = new CategoriesController();
 
 	app.addHook("onRequest", async (request, reply) => {
+		const path = request.url.split("?")[0];
+		const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(route + "/"));
+		if (isPublicRoute) return;
+
+		// Only apply JWT verification to /categories routes
+		if (!path.startsWith("/categories")) return;
+
 		try {
 			await request.jwtVerify();
 		} catch (err) {
@@ -40,11 +49,10 @@ export async function registerCategoriesRoutes(app: FastifyInstance) {
 				security: [{ bearerAuth: [] }],
 				body: {
 					type: "object",
-					required: ["name", "color", "type"],
+					required: ["name"],
 					properties: {
 						name: { type: "string" },
 						color: { type: "string" },
-						type: { type: "string", enum: ["income", "expense"] },
 						icon: { type: "string" },
 					},
 				},
