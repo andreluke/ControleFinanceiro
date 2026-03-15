@@ -53,14 +53,15 @@ jobs:
         run: |
           BRANCH=${GITHUB_REF#refs/heads/}
 
-          # Remove extraheader global e local que o actions/checkout injeta
+          # Remove todos os extraheaders injetados pelo actions/checkout
           git config --global --unset-all http.https://github.com/.extraheader || true
           git config --local --unset-all http.https://github.com/.extraheader || true
           git config --local --unset-all http.extraheader || true
 
-          # Força uso do GH_TOKEN em todas as requisições ao github.com
-          git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic $(echo -n x-access-token:${GH_TOKEN} | base64)"
+          # Define o token correto sem quebra de linha no base64
+          B64_TOKEN=$(echo -n "x-access-token:${GH_TOKEN}" | base64 -w 0)
+          git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic ${B64_TOKEN}"
 
           git remote set-url origin https://github.com/${{ matrix.repo }}.git
 
-          git push origin split-${{ matrix.dir }}:$BRANCH --force
+          git push origin split-${{ matrix.dir }}:$BRANCH --forcee
