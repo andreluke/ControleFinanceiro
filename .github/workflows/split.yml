@@ -1,0 +1,84 @@
+name: Monorepo Split
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - staging
+      - feature/**
+      - hotfix/**
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      api: ${{ steps.filter.outputs.api }}
+      mobile: ${{ steps.filter.outputs.mobile }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            web:
+              - 'web/**'
+            api:
+              - 'api/**'
+            mobile:
+              - 'mobile/**'
+
+  split:
+    needs: detect
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - dir: web
+            repo: andreluke/WebControleFinanceiro
+            changed: ${{ needs.detect.outputs.web }}
+          - dir: api
+            repo: andreluke/ApiControleFinanceiro
+            changed: ${{ needs.detect.outputs.api }}
+          - dir: mobile
+            repo: andreluke/MobileControleFinanceiro
+            changed: ${{ needs.detect.outputs.mobile }}
+
+    steps:
+      - name: Stop if folder not changed
+        if: matrix.changed != 'true'
+        run: |
+          echo "No changes in ${{ matrix.dir }}"
+          exit 0
+
+      - uses: actions/checkout@v4
+        if: matrix.changed == 'true'
+        with:
+          fetch-depth: 0
+
+      - name: Setup git
+        if: matrix.changed == 'true'
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@github.com"
+
+      - name: Split subtree
+        if: matrix.changed == 'true'
+        run: |
+          git subtree split --prefix=${{ matrix.dir }} -b split-branch
+
+      - name: Push
+        if: matrix.changed == 'true'
+        env:
+          TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          BRANCH=${GITHUB_REF#refs/heads/}
+
+          git push https://x-access-token:$TOKEN@github.com/${{ matrix.repo }} \
+          split-branch:$BRANCH --force

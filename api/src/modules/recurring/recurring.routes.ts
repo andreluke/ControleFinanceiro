@@ -11,6 +11,9 @@ export async function registerRecurringRoutes(app: FastifyInstance) {
 		const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(route + "/"));
 		if (isPublicRoute) return;
 
+		// Only apply JWT verification to /recurring routes
+		if (!path.startsWith("/recurring")) return;
+
 		try {
 			await request.jwtVerify();
 		} catch (err) {

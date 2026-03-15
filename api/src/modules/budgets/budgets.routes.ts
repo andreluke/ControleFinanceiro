@@ -11,6 +11,9 @@ export async function registerBudgetsRoutes(app: FastifyInstance) {
     const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(route + "/"));
     if (isPublicRoute) return;
 
+    // Only apply JWT verification to /budgets routes
+    if (!path.startsWith("/budgets")) return;
+
     try {
       await request.jwtVerify();
     } catch (err) {
