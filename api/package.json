@@ -3,11 +3,10 @@
 	"version": "1.0.0",
 	"description": "FinanceApp API - Controle Financeiro Pessoal",
 	"type": "module",
-	"main": "build/index.js",
 	"scripts": {
 		"dev": "tsx watch --env-file .env.dev src/index.ts",
 		"build": "tsup src/index.ts --format cjs --dts",
-		"start": "node build/index.js",
+		"start": "node dist/index.cjs",
 		"drizzle:generate": "drizzle-kit generate",
 		"drizzle:migrate": "drizzle-kit migrate",
 		"drizzle:migrate:test": "cross-env DATABASE_URL=postgres://test:test@localhost:5433/financeapp_test drizzle-kit migrate",
@@ -32,6 +31,7 @@
 		"fastify": "^5.1.0",
 		"pdfkit": "^0.12.3",
 		"postgres": "^3.4.5",
+		"serve": "^14.2.6",
 		"xlsx": "^0.18.5",
 		"zod": "^3.24.0"
 	},
