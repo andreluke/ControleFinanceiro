@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 import { buildApp } from "./config/app";
 import { env } from "./settings/env";
 
