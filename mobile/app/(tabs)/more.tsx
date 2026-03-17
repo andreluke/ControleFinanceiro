@@ -71,8 +71,12 @@ export default function MoreScreen() {
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Conta</Text>
-          <MenuItem icon={<Icons.User size={20} />} title="Perfil" subtitle="Editar informações pessoais" />
-          <MenuItem icon={<Icons.Lock size={20} />} title="Segurança" subtitle="Alterar senha" />
+          <MenuItem 
+            icon={<Icons.User size={20} />} 
+            title="Perfil" 
+            subtitle="Editar informações pessoais"
+            onPress={() => router.push('/(more)/profile')}
+          />
         </View>
 
         <View style={styles.section}>

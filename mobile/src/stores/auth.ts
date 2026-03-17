@@ -5,12 +5,14 @@ interface User {
   id: string
   name: string
   email: string
+  createdAt?: string
 }
 
 interface AuthState {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
+  setUser: (user: User | null) => void
   checkAuth: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
   register: (name: string, email: string, password: string) => Promise<void>
@@ -21,6 +23,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: true,
   isAuthenticated: false,
+  setUser: (user) => set({ user }),
 
   checkAuth: async () => {
     try {

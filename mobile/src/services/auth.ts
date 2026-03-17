@@ -21,6 +21,15 @@ export interface AuthResponse {
   }
 }
 
+export interface AuthMeResponse {
+  user: {
+    id: string 
+    name: string
+    email: string
+    createdAt: string
+  }
+}
+
 export const authService = {
   async login(data: LoginRequest): Promise<AuthResponse> {
     const response = await api.post<AuthResponse>('/auth/login', data)
@@ -43,7 +52,17 @@ export const authService = {
   },
 
   async me(): Promise<AuthResponse['user']> {
-    return api.get<AuthResponse['user']>('/auth/me')
+    const response = await api.get<AuthMeResponse>('/auth/me')
+    return response.user
+  },
+
+  async updateProfile(name: string): Promise<AuthResponse['user']> {
+    const response = await api.put<AuthMeResponse>('/auth/me', { name })
+    return response.user
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ message: string }> {
+    return api.put<{ message: string }>('/auth/me/password', { currentPassword, newPassword })
   },
 
   async isAuthenticated(): Promise<boolean> {

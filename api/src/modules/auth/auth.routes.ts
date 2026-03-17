@@ -66,4 +66,42 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 		},
 		authController.me,
 	);
+
+	app.put(
+		"/auth/me",
+		{
+			schema: {
+				description: "Atualiza os dados do usuário",
+				tags: ["Auth"],
+				security: [{ bearerAuth: [] }],
+				body: {
+					type: "object",
+					properties: {
+						name: { type: "string" },
+					},
+				},
+			},
+		},
+		authController.updateMe,
+	);
+
+	app.put(
+		"/auth/me/password",
+		{
+			schema: {
+				description: "Altera a senha do usuário",
+				tags: ["Auth"],
+				security: [{ bearerAuth: [] }],
+				body: {
+					type: "object",
+					required: ["currentPassword", "newPassword"],
+					properties: {
+						currentPassword: { type: "string" },
+						newPassword: { type: "string", minLength: 6 },
+					},
+				},
+			},
+		},
+		authController.changePassword,
+	);
 }

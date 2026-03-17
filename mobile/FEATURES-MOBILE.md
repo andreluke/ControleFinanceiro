@@ -79,26 +79,29 @@
 - [ ] Alertas de orçamento próximo ao limite
 
 ### Categorias
-- [ ] Criar categoria
-- [ ] Editar categoria
-- [ ] Deletar categoria
+- [x] Lista de categorias
+- [x] Criar categoria
+- [x] Editar categoria
+- [x] Deletar categoria
+- [x] Seletor de cor
 
 ### Subcategorias
-- [ ] Lista de subcategorias
-- [ ] Criar subcategoria
-- [ ] Editar subcategoria
-- [ ] Deletar subcategoria
+- [x] Lista de subcategorias
+- [x] Criar subcategoria
+- [x] Editar subcategoria
+- [x] Deletar subcategoria
 
 ### Métodos de Pagamento
-- [ ] Lista de métodos de pagamento
-- [ ] Criar método de pagamento
-- [ ] Editar método de pagamento
-- [ ] Deletar método de pagamento
+- [x] Lista de métodos de pagamento
+- [x] Criar método de pagamento
+- [x] Editar método de pagamento
+- [x] Deletar método de pagamento
 
 ### Perfil
-- [ ] Editar perfil
-- [ ] Alterar senha
-- [ ] Avatar/nome do usuário
+- [x] Editar perfil
+- [x] Alterar senha
+- [x] Avatar/nome do usuário
+- [x] Notificações (on/off)
 
 ### Exportação
 - [ ] Exportar dados (PDF/CSV)

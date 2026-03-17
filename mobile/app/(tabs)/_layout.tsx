@@ -1,5 +1,5 @@
 import { Tabs } from "expo-router";
-import { View, StyleSheet, Platform } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { colors } from "../../src/theme/tokens";
 import {
   HomeIcon,

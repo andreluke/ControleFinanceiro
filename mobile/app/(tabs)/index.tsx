@@ -32,10 +32,11 @@ export default function DashboardScreen() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const insets = useSafeAreaInsets()
-  const { user } = useAuthStore()
+  const { user, checkAuth } = useAuthStore()
 
   const loadData = async () => {
     try {
+      await checkAuth()
       const [summaryData, transactionsData] = await Promise.all([
         summaryService.get(),
         transactionService.list({ limit: 5 }),

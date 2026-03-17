@@ -2243,6 +2243,10 @@ var AuthModel = class {
     }).from(users).where((0, import_drizzle_orm4.eq)(users.id, id)).limit(1);
     return user;
   }
+  async findByIdWithPassword(id) {
+    const [user] = await db.select().from(users).where((0, import_drizzle_orm4.eq)(users.id, id)).limit(1);
+    return user;
+  }
   async verifyPassword(password, hash) {
     return import_bcryptjs.default.compare(password, hash);
   }
@@ -2257,6 +2261,24 @@ var AuthModel = class {
       name: users.name,
       email: users.email,
       createdAt: users.createdAt
+    });
+    return user;
+  }
+  async updateName(id, name) {
+    const [user] = await db.update(users).set({ name }).where((0, import_drizzle_orm4.eq)(users.id, id)).returning({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      createdAt: users.createdAt
+    });
+    return user;
+  }
+  async updatePassword(id, newPassword) {
+    const hash = await import_bcryptjs.default.hash(newPassword, SALT_ROUNDS);
+    const [user] = await db.update(users).set({ password: hash }).where((0, import_drizzle_orm4.eq)(users.id, id)).returning({
+      id: users.id,
+      name: users.name,
+      email: users.email
     });
     return user;
   }
@@ -2350,6 +2372,38 @@ var AuthController = class {
     reply.clearCookie("token", { path: "/" });
     return reply.send({ message: "Logout realizado" });
   };
+  updateMe = async (request, reply) => {
+    await catchError(request.jwtVerify());
+    const { sub } = request.user;
+    const body = request.body;
+    if (!body.name) {
+      throw new AppError("Nome \xE9 obrigat\xF3rio", 400);
+    }
+    const [err, user] = await catchError(
+      this.authModel.updateName(sub, body.name)
+    );
+    if (err) throw new AppError("Erro ao atualizar perfil", 500);
+    return reply.send({ user });
+  };
+  changePassword = async (request, reply) => {
+    await catchError(request.jwtVerify());
+    const { sub } = request.user;
+    const body = request.body;
+    const [errUser, user] = await catchError(this.authModel.findByIdWithPassword(sub));
+    if (errUser || !user) throw new AppError("Usu\xE1rio n\xE3o encontrado", 404);
+    const [errVerify, isValid] = await catchError(
+      this.authModel.verifyPassword(body.currentPassword, user.password)
+    );
+    if (errVerify) throw new AppError("Erro ao verificar senha", 500);
+    if (!isValid) {
+      throw new AppError("Senha atual incorreta", 401);
+    }
+    const [errUpdate] = await catchError(
+      this.authModel.updatePassword(sub, body.newPassword)
+    );
+    if (errUpdate) throw new AppError("Erro ao alterar senha", 500);
+    return reply.send({ message: "Senha alterada com sucesso" });
+  };
 };
 
 // src/modules/auth/auth.routes.ts
@@ -2413,6 +2467,42 @@ async function registerAuthRoutes(app) {
       }
     },
     authController.me
+  );
+  app.put(
+    "/auth/me",
+    {
+      schema: {
+        description: "Atualiza os dados do usu\xE1rio",
+        tags: ["Auth"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string" }
+          }
+        }
+      }
+    },
+    authController.updateMe
+  );
+  app.put(
+    "/auth/me/password",
+    {
+      schema: {
+        description: "Altera a senha do usu\xE1rio",
+        tags: ["Auth"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["currentPassword", "newPassword"],
+          properties: {
+            currentPassword: { type: "string" },
+            newPassword: { type: "string", minLength: 6 }
+          }
+        }
+      }
+    },
+    authController.changePassword
   );
 }
 

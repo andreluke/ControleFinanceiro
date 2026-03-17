@@ -30,6 +30,15 @@ export class AuthModel {
 		return user;
 	}
 
+	async findByIdWithPassword(id: string) {
+		const [user] = await db
+			.select()
+			.from(users)
+			.where(eq(users.id, id))
+			.limit(1);
+		return user;
+	}
+
 	async verifyPassword(password: string, hash: string) {
 		return bcrypt.compare(password, hash);
 	}
@@ -51,6 +60,34 @@ export class AuthModel {
 				createdAt: users.createdAt,
 			});
 
+		return user;
+	}
+
+	async updateName(id: string, name: string) {
+		const [user] = await db
+			.update(users)
+			.set({ name })
+			.where(eq(users.id, id))
+			.returning({
+				id: users.id,
+				name: users.name,
+				email: users.email,
+				createdAt: users.createdAt,
+			});
+		return user;
+	}
+
+	async updatePassword(id: string, newPassword: string) {
+		const hash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+		const [user] = await db
+			.update(users)
+			.set({ password: hash })
+			.where(eq(users.id, id))
+			.returning({
+				id: users.id,
+				name: users.name,
+				email: users.email,
+			});
 		return user;
 	}
 }

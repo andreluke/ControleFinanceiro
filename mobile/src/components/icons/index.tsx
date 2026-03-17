@@ -127,6 +127,20 @@ export const LogOutIcon = ({ size = 24, color = colors.danger }: IconProps) => (
   </Svg>
 )
 
+export const MailIcon = ({ size = 24, color = defaultColor }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+    <Path d="M22 6l-10 7L2 6" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+  </Svg>
+)
+
+export const CalendarIcon = ({ size = 24, color = defaultColor }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M19 4H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+    <Path d="M16 2v4M8 2v4M3 10h18" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+  </Svg>
+)
+
 export const ChevronRightIcon = ({ size = 24, color = colors.secondary }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <Path d="M9 18l6-6-6-6" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
@@ -228,6 +242,8 @@ export const Icons = {
   Info: InfoIcon,
   LogOut: LogOutIcon,
   ChevronRight: ChevronRightIcon,
+  Mail: MailIcon,
+  Calendar: CalendarIcon,
   TrendingUp: TrendingUpIcon,
   TrendingDown: TrendingDownIcon,
   Wallet: WalletIcon,
