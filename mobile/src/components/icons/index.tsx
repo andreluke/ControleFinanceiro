@@ -101,6 +101,21 @@ export const DownloadIcon = ({ size = 24, color = defaultColor }: IconProps) => 
   </Svg>
 )
 
+export const FileIcon = ({ size = 24, color = defaultColor }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+    <Path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+  </Svg>
+)
+
+export const ExcelIcon = ({ size = 24, color = defaultColor }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+    <Path d="M14 2v6h6" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+    <Path d="M8 13h2M8 17h2M14 13h2M14 17h2" stroke={color} strokeWidth={2} strokeLinecap="round"/>
+  </Svg>
+)
+
 export const HelpCircleIcon = ({ size = 24, color = defaultColor }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <Circle cx="12" cy="12" r="10" stroke={color} strokeWidth={2}/>
@@ -237,6 +252,8 @@ export const Icons = {
   Moon: MoonIcon,
   Repeat: RepeatIcon,
   Download: DownloadIcon,
+  File: FileIcon,
+  Excel: ExcelIcon,
   HelpCircle: HelpCircleIcon,
   MessageCircle: MessageCircleIcon,
   Info: InfoIcon,

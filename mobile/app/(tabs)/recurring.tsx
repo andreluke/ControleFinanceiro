@@ -3,8 +3,9 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { useState, useCallback } from 'react'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { Input, Card, CardContent, Button, Modal } from '../../src/components/ui'
+import { DatePickerInput } from '../../src/components/ui/DatePicker'
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../src/theme/tokens'
-import { recurringService, categoryService, type RecurringTransaction, type Category } from '../../src/services'
+import { recurringService, categoryService, paymentMethodService, type RecurringTransaction, type Category, type PaymentMethod } from '../../src/services'
 import { Icons } from '../../src/components/icons'
 
 const formatCurrency = (value: number) => {
@@ -30,6 +31,7 @@ export default function RecurringScreen() {
   const router = useRouter()
   const [recurring, setRecurring] = useState<RecurringTransaction[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingItem, setEditingItem] = useState<RecurringTransaction | null>(null)
@@ -38,18 +40,21 @@ export default function RecurringScreen() {
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('')
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('')
   const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'>('monthly')
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const loadData = async () => {
     try {
-      const [recData, catData] = await Promise.all([
+      const [recData, catData, payData] = await Promise.all([
         recurringService.list(),
         categoryService.list(),
+        paymentMethodService.list(),
       ])
       setRecurring(recData)
       setCategories(catData)
+      setPaymentMethods(payData)
     } catch (err) {
       console.error('Error loading data:', err)
     } finally {
@@ -70,6 +75,7 @@ export default function RecurringScreen() {
       setAmount(item.amount.toString())
       setDescription(item.description)
       setSelectedCategory(item.categoryId || '')
+      setSelectedPaymentMethod(item.paymentMethodId || '')
       setFrequency(item.frequency)
       setStartDate(new Date(item.date).toISOString().split('T')[0])
     } else {
@@ -78,6 +84,7 @@ export default function RecurringScreen() {
       setAmount('')
       setDescription('')
       setSelectedCategory('')
+      setSelectedPaymentMethod('')
       setFrequency('monthly')
       setStartDate(new Date().toISOString().split('T')[0])
     }
@@ -99,6 +106,7 @@ export default function RecurringScreen() {
         amount: parseFloat(amount.replace(',', '.')),
         type,
         categoryId: selectedCategory || undefined,
+        paymentMethodId: selectedPaymentMethod || undefined,
         date: new Date(startDate).toISOString(),
         frequency,
       }
@@ -180,7 +188,11 @@ export default function RecurringScreen() {
             </View>
             <View style={styles.details}>
               <Text style={[styles.name, !item.isActive && styles.textInactive]}>{item.description}</Text>
-              <Text style={styles.frequency}>{frequencyLabels[item.frequency]}</Text>
+              <Text style={styles.frequency}>
+                {frequencyLabels[item.frequency]}
+                {(item as any).paymentMethod?.name && ` • ${(item as any).paymentMethod.name}`}
+                {(item as any).category?.name && ` • ${(item as any).category.name}`}
+              </Text>
             </View>
           </View>
           <View style={styles.actions}>
@@ -284,11 +296,11 @@ export default function RecurringScreen() {
             onChangeText={setDescription}
           />
 
-          <Input
+          <DatePickerInput
             label="Data de início"
-            placeholder="YYYY-MM-DD"
             value={startDate}
-            onChangeText={setStartDate}
+            onChange={setStartDate}
+            placeholder="Selecionar data"
           />
 
           <Text style={styles.label}>Frequência</Text>
@@ -328,6 +340,40 @@ export default function RecurringScreen() {
                   ]}
                 >
                   {cat.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.label}>Forma de Pagamento (opcional)</Text>
+          <View style={styles.categoriesGrid}>
+            <TouchableOpacity
+              style={[
+                styles.categoryButton,
+                !selectedPaymentMethod && styles.categoryButtonActive,
+              ]}
+              onPress={() => setSelectedPaymentMethod('')}
+            >
+              <Text style={[styles.categoryName, !selectedPaymentMethod && styles.categoryNameActive]}>
+                Nenhuma
+              </Text>
+            </TouchableOpacity>
+            {paymentMethods.map((pm) => (
+              <TouchableOpacity
+                key={pm.id}
+                style={[
+                  styles.categoryButton,
+                  selectedPaymentMethod === pm.id && styles.categoryButtonActive,
+                ]}
+                onPress={() => setSelectedPaymentMethod(pm.id)}
+              >
+                <Text
+                  style={[
+                    styles.categoryName,
+                    selectedPaymentMethod === pm.id && styles.categoryNameActive,
+                  ]}
+                >
+                  {pm.name}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -512,6 +558,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: spacing.xs,
   },
+  categoryButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + '20',
+  },
   categoryDot: {
     width: 10,
     height: 10,
@@ -520,6 +570,9 @@ const styles = StyleSheet.create({
   categoryName: {
     fontSize: fontSize.sm,
     color: colors.secondary,
+  },
+  categoryNameActive: {
+    color: colors.primary,
   },
   submitButton: {
     marginTop: spacing.md,

@@ -3,8 +3,9 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { useState, useCallback, useMemo } from 'react'
 import { useFocusEffect } from 'expo-router'
 import { Input, Card, CardContent, Button, Modal } from '../../src/components/ui'
+import { DatePickerInput } from '../../src/components/ui/DatePicker'
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../src/theme/tokens'
-import { transactionService, categoryService, type Transaction, type Category } from '../../src/services'
+import { transactionService, categoryService, paymentMethodService, type Transaction, type Category, type PaymentMethod } from '../../src/services'
 import { Icons, FilterIcon } from '../../src/components/icons'
 
 const formatCurrency = (value: number) => {
@@ -41,18 +42,22 @@ export default function TransactionsScreen() {
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('')
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('')
   const [transactionDate, setTransactionDate] = useState(new Date().toISOString().split('T')[0])
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [loadingCategories, setLoadingCategories] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const loadData = async () => {
     try {
-      const [transData, catData] = await Promise.all([
+      const [transData, catData, payData] = await Promise.all([
         transactionService.list(),
         categoryService.list(),
+        paymentMethodService.list(),
       ])
       setTransactions(transData.data)
       setCategories(catData)
+      setPaymentMethods(payData)
     } catch (err) {
       console.error('Error loading data:', err)
     } finally {
@@ -110,6 +115,7 @@ export default function TransactionsScreen() {
     setAmount('')
     setDescription('')
     setSelectedCategory('')
+    setSelectedPaymentMethod('')
     setTransactionDate(new Date().toISOString().split('T')[0])
     setLoadingCategories(false)
     setShowModal(true)
@@ -121,6 +127,7 @@ export default function TransactionsScreen() {
     setAmount(transaction.amount.toString())
     setDescription(transaction.description)
     setSelectedCategory(transaction.categoryId)
+    setSelectedPaymentMethod(transaction.paymentMethodId || '')
     setTransactionDate(new Date(transaction.date).toISOString().split('T')[0])
     setLoadingCategories(false)
     setShowModal(true)
@@ -147,6 +154,7 @@ export default function TransactionsScreen() {
         type,
         categoryId: selectedCategory,
         date: new Date(transactionDate).toISOString(),
+        paymentMethodId: selectedPaymentMethod || undefined,
       }
 
       if (editingTransaction) {
@@ -376,11 +384,11 @@ export default function TransactionsScreen() {
             onChangeText={setDescription}
           />
 
-          <Input
+          <DatePickerInput
             label="Data"
-            placeholder="YYYY-MM-DD"
             value={transactionDate}
-            onChangeText={setTransactionDate}
+            onChange={setTransactionDate}
+            placeholder="Selecionar data"
           />
 
           <Text style={styles.label}>Categoria</Text>
@@ -413,6 +421,40 @@ export default function TransactionsScreen() {
               ))}
             </View>
           )}
+
+          <Text style={styles.label}>Forma de Pagamento (opcional)</Text>
+          <View style={styles.categoriesGrid}>
+            <TouchableOpacity
+              style={[
+                styles.categoryButton,
+                !selectedPaymentMethod && styles.categoryButtonActive,
+              ]}
+              onPress={() => setSelectedPaymentMethod('')}
+            >
+              <Text style={[styles.categoryName, !selectedPaymentMethod && styles.categoryNameActive]}>
+                Nenhuma
+              </Text>
+            </TouchableOpacity>
+            {paymentMethods.map((pm) => (
+              <TouchableOpacity
+                key={pm.id}
+                style={[
+                  styles.categoryButton,
+                  selectedPaymentMethod === pm.id && styles.categoryButtonActive,
+                ]}
+                onPress={() => setSelectedPaymentMethod(pm.id)}
+              >
+                <Text
+                  style={[
+                    styles.categoryName,
+                    selectedPaymentMethod === pm.id && styles.categoryNameActive,
+                  ]}
+                >
+                  {pm.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
           <Button
             onPress={handleSubmit}
@@ -647,6 +689,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: spacing.xs,
   },
+  categoryButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + '20',
+  },
   categoryDot: {
     width: 10,
     height: 10,
@@ -655,6 +701,10 @@ const styles = StyleSheet.create({
   categoryName: {
     fontSize: fontSize.sm,
     color: colors.secondary,
+  },
+  categoryNameActive: {
+    color: colors.primary,
+    fontWeight: fontWeight.medium,
   },
   createButton: {
     marginTop: spacing.md,

@@ -104,7 +104,7 @@
 - [x] Notificações (on/off)
 
 ### Exportação
-- [ ] Exportar dados (PDF/CSV)
+- [x] Exportar dados (PDF/CSV/Excel)
 - [ ] Backup
 
 ### Configurações

@@ -15,6 +15,10 @@ export interface RecurringTransaction {
     color: string
   }
   paymentMethodId?: string
+  paymentMethod?: {
+    id: string
+    name: string
+  }
   isActive: boolean
   lastProcessedAt?: string
   nextProcessingDate?: string

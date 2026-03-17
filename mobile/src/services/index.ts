@@ -27,3 +27,4 @@ export {
   type CreateRecurringRequest,
   type UpdateRecurringRequest 
 } from './recurring'
+export { paymentMethodService, type PaymentMethod } from './paymentMethods'
