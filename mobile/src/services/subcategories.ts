@@ -1,4 +1,6 @@
 import { api } from './api'
+import { CACHE_KEYS } from './cache'
+import { withCache, cacheUtils } from './cacheUtils'
 
 export interface Subcategory {
   id: string
@@ -24,7 +26,14 @@ export interface UpdateSubcategoryRequest {
 }
 
 export const subcategoryService = {
-  async list(): Promise<Subcategory[]> {
+  async list(useCache = true): Promise<Subcategory[]> {
+    if (useCache) {
+      return withCache(
+        () => api.get<Subcategory[]>('/subcategories'),
+        { cacheKey: CACHE_KEYS.SUBCATEGORIES, cacheTime: 30 * 60 * 1000 }
+      )
+    }
+    
     return api.get<Subcategory[]>('/subcategories')
   },
 
@@ -33,18 +42,27 @@ export const subcategoryService = {
   },
 
   async create(data: CreateSubcategoryRequest): Promise<Subcategory> {
-    return api.post<Subcategory>('/subcategories', data)
+    const result = await api.post<Subcategory>('/subcategories', data)
+    await subcategoryService.invalidate()
+    return result
   },
 
   async update(id: string, data: UpdateSubcategoryRequest): Promise<Subcategory> {
-    return api.put<Subcategory>(`/subcategories/${id}`, data)
+    const result = await api.put<Subcategory>(`/subcategories/${id}`, data)
+    await subcategoryService.invalidate()
+    return result
   },
 
   async delete(id: string): Promise<void> {
-    return api.delete(`/subcategories/${id}`)
+    await api.delete(`/subcategories/${id}`)
+    await subcategoryService.invalidate()
   },
 
   async restore(id: string): Promise<Subcategory> {
-    return api.patch<Subcategory>(`/subcategories/${id}/restore`)
+    const result = await api.patch<Subcategory>(`/subcategories/${id}/restore`)
+    await subcategoryService.invalidate()
+    return result
   },
+
+  invalidate: async () => await cacheUtils.invalidateCategories(),
 }

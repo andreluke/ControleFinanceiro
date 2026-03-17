@@ -1,4 +1,5 @@
 import { api } from './api'
+import { withCache, cacheUtils } from './cacheUtils'
 
 export interface Transaction {
   id: string
@@ -41,7 +42,17 @@ export interface CreateTransactionRequest {
 }
 
 export const transactionService = {
-  async list(params?: TransactionListParams): Promise<TransactionListResponse> {
+  async list(params?: TransactionListParams, useCache = true): Promise<TransactionListResponse> {
+    const paramsKey = params ? JSON.stringify(params) : 'all'
+    const cacheKey = `transactions_${paramsKey}`
+    
+    if (useCache) {
+      return withCache(
+        () => api.get<TransactionListResponse>('/transactions', params as Record<string, string | number | undefined>),
+        { cacheKey, cacheTime: 2 * 60 * 1000 }
+      )
+    }
+    
     return api.get<TransactionListResponse>('/transactions', params as Record<string, string | number | undefined>)
   },
 
@@ -50,14 +61,21 @@ export const transactionService = {
   },
 
   async create(data: CreateTransactionRequest): Promise<Transaction> {
-    return api.post<Transaction>('/transactions', data)
+    const result = await api.post<Transaction>('/transactions', data)
+    await transactionService.invalidate()
+    return result
   },
 
   async update(id: string, data: Partial<CreateTransactionRequest>): Promise<Transaction> {
-    return api.put<Transaction>(`/transactions/${id}`, data)
+    const result = await api.put<Transaction>(`/transactions/${id}`, data)
+    await transactionService.invalidate()
+    return result
   },
 
   async delete(id: string): Promise<void> {
-    return api.delete(`/transactions/${id}`)
+    await api.delete(`/transactions/${id}`)
+    await transactionService.invalidate()
   },
+
+  invalidate: async () => await cacheUtils.invalidateTransactions(),
 }

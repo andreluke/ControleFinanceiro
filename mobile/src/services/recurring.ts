@@ -1,4 +1,6 @@
 import { api } from './api'
+import { CACHE_KEYS } from './cache'
+import { withCache, cacheUtils } from './cacheUtils'
 
 export interface RecurringTransaction {
   id: string
@@ -47,7 +49,16 @@ export interface UpdateRecurringRequest {
 }
 
 export const recurringService = {
-  async list(includeInactive?: boolean): Promise<RecurringTransaction[]> {
+  async list(includeInactive?: boolean, useCache = true): Promise<RecurringTransaction[]> {
+    const cacheKey = `${CACHE_KEYS.RECURRING}_${includeInactive}`
+    
+    if (useCache) {
+      return withCache(
+        () => api.get<RecurringTransaction[]>('/recurring', { includeInactive: includeInactive ? 'true' : undefined }),
+        { cacheKey, cacheTime: 5 * 60 * 1000 }
+      )
+    }
+    
     return api.get<RecurringTransaction[]>('/recurring', { includeInactive: includeInactive ? 'true' : undefined })
   },
 
@@ -56,22 +67,33 @@ export const recurringService = {
   },
 
   async create(data: CreateRecurringRequest): Promise<RecurringTransaction> {
-    return api.post<RecurringTransaction>('/recurring', data)
+    const result = await api.post<RecurringTransaction>('/recurring', data)
+    await recurringService.invalidate()
+    return result
   },
 
   async update(id: string, data: UpdateRecurringRequest): Promise<RecurringTransaction> {
-    return api.put<RecurringTransaction>(`/recurring/${id}`, data)
+    const result = await api.put<RecurringTransaction>(`/recurring/${id}`, data)
+    await recurringService.invalidate()
+    return result
   },
 
   async toggle(id: string): Promise<RecurringTransaction> {
-    return api.patch<RecurringTransaction>(`/recurring/${id}/toggle`)
+    const result = await api.patch<RecurringTransaction>(`/recurring/${id}/toggle`)
+    await recurringService.invalidate()
+    return result
   },
 
   async delete(id: string): Promise<void> {
-    return api.delete(`/recurring/${id}`)
+    await api.delete(`/recurring/${id}`)
+    await recurringService.invalidate()
   },
 
   async process(id: string): Promise<RecurringTransaction> {
-    return api.post<RecurringTransaction>(`/recurring/${id}/process`)
+    const result = await api.post<RecurringTransaction>(`/recurring/${id}/process`)
+    await recurringService.invalidate()
+    return result
   },
+
+  invalidate: async () => await cacheUtils.invalidateRecurring(),
 }

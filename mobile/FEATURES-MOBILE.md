@@ -91,6 +91,12 @@
 - [x] Telas de auth com design moderno
 - [x] Botões com estilo filled (pill shape)
 
+### Offline
+- [x] Cache local com MMKV
+- [x] Cache automático em todas as requisições
+- [x] Invalidação de cache em mutações (create, update, delete)
+- [x] Dados disponíveis offline
+
 ---
 
 ## 🚧 Em Desenvolvimento
@@ -123,8 +129,10 @@
 - [ ] Tema (dark/light) - só dark por enquanto
 
 ### Offline
-- [ ] Cache local com MMKV
-- [ ] Sincronização offline
+- [x] Cache local com MMKV
+- [x] Cache automático em todas as requisições
+- [x] Invalidação de cache em mutações (create, update, delete)
+- [x] Dados disponíveis offline
 
 ---
 

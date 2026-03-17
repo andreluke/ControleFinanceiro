@@ -1,4 +1,6 @@
 import { api } from './api'
+import { CACHE_KEYS } from './cache'
+import { withCache, cacheUtils } from './cacheUtils'
 
 export interface Budget {
   id: string
@@ -29,19 +31,35 @@ export interface CreateBudgetRequest {
 }
 
 export const budgetService = {
-  async list(params?: BudgetListParams): Promise<Budget[]> {
+  async list(params?: BudgetListParams, useCache = true): Promise<Budget[]> {
+    const cacheKey = `${CACHE_KEYS.BUDGETS}_${params?.month}_${params?.year}`
+    
+    if (useCache) {
+      return withCache(
+        () => api.get<Budget[]>('/budgets', params as Record<string, string | number | undefined>),
+        { cacheKey, cacheTime: 5 * 60 * 1000 }
+      )
+    }
+    
     return api.get<Budget[]>('/budgets', params as Record<string, string | number | undefined>)
   },
 
   async create(data: CreateBudgetRequest): Promise<Budget> {
-    return api.post<Budget>('/budgets', data)
+    const result = await api.post<Budget>('/budgets', data)
+    budgetService.invalidate()
+    return result
   },
 
   async update(id: string, amount: number): Promise<Budget> {
-    return api.put<Budget>(`/budgets/${id}`, { amount })
+    const result = await api.put<Budget>(`/budgets/${id}`, { amount })
+    budgetService.invalidate()
+    return result
   },
 
   async delete(id: string): Promise<void> {
-    return api.delete(`/budgets/${id}`)
+    await api.delete(`/budgets/${id}`)
+    budgetService.invalidate()
   },
+
+  invalidate: async () => await cacheUtils.invalidateBudgets(),
 }

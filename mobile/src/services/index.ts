@@ -28,3 +28,5 @@ export {
   type UpdateRecurringRequest 
 } from './recurring'
 export { paymentMethodService, type PaymentMethod } from './paymentMethods'
+export { cacheService, CACHE_KEYS } from './cache'
+export { withCache, clearCache, clearKeys, cacheUtils } from './cacheUtils'
