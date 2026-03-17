@@ -44,7 +44,7 @@ export interface UpdateRecurringRequest {
 
 export const recurringService = {
   async list(includeInactive?: boolean): Promise<RecurringTransaction[]> {
-    return api.get<RecurringTransaction[]>('/recurring', { includeInactive })
+    return api.get<RecurringTransaction[]>('/recurring', { includeInactive: includeInactive ? 'true' : undefined })
   },
 
   async get(id: string): Promise<RecurringTransaction> {

@@ -7,11 +7,12 @@ import { ColorPicker } from '../../src/components/ui/ColorPicker'
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../src/theme/tokens'
 import { categoryService, type Category } from '../../src/services/categories'
 import { subcategoryService, type Subcategory } from '../../src/services/subcategories'
-import { Icons } from '../../src/components/icons'
+import { paymentMethodService, type PaymentMethod } from '../../src/services/paymentMethods'
+import { Icons, CardIcon } from '../../src/components/icons'
 
 const { width } = Dimensions.get('window')
 
-type TabType = 'categories' | 'subcategories'
+type TabType = 'categories' | 'subcategories' | 'paymentMethods'
 
 export default function CategoriesTabsScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('categories')
@@ -19,10 +20,12 @@ export default function CategoriesTabsScreen() {
 
   const [categories, setCategories] = useState<Category[]>([])
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [editingSubcategory, setEditingSubcategory] = useState<Subcategory | null>(null)
+  const [editingPaymentMethod, setEditingPaymentMethod] = useState<PaymentMethod | null>(null)
   const [name, setName] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [color, setColor] = useState('#3B82F6')
@@ -30,12 +33,14 @@ export default function CategoriesTabsScreen() {
 
   const loadData = async () => {
     try {
-      const [cats, subs] = await Promise.all([
+      const [cats, subs, pays] = await Promise.all([
         categoryService.list(),
         subcategoryService.list(),
+        paymentMethodService.list(),
       ])
       setCategories(cats)
       setSubcategories(subs)
+      setPaymentMethods(pays)
     } catch (err) {
       console.error('Error loading data:', err)
     } finally {
@@ -51,12 +56,14 @@ export default function CategoriesTabsScreen() {
 
   const switchTab = (tab: TabType) => {
     setActiveTab(tab)
-    scrollViewRef.current?.scrollTo({ x: tab === 'categories' ? 0 : width, animated: true })
+    const index = tab === 'categories' ? 0 : tab === 'subcategories' ? 1 : 2
+    scrollViewRef.current?.scrollTo({ x: index * width, animated: true })
   }
 
   const openCategoryModal = (category?: Category) => {
     setEditingCategory(category || null)
     setEditingSubcategory(null)
+    setEditingPaymentMethod(null)
     setName(category?.name || '')
     setColor(category?.color || '#3B82F6')
     setCategoryId('')
@@ -66,9 +73,20 @@ export default function CategoriesTabsScreen() {
   const openSubcategoryModal = (subcategory?: Subcategory) => {
     setEditingSubcategory(subcategory || null)
     setEditingCategory(null)
+    setEditingPaymentMethod(null)
     setName(subcategory?.name || '')
     setColor(subcategory?.color || '#3B82F6')
     setCategoryId(subcategory?.categoryId || categories[0]?.id || '')
+    setShowModal(true)
+  }
+
+  const openPaymentMethodModal = (pm?: PaymentMethod) => {
+    setEditingPaymentMethod(pm || null)
+    setEditingCategory(null)
+    setEditingSubcategory(null)
+    setName(pm?.name || '')
+    setColor('#3B82F6')
+    setCategoryId('')
     setShowModal(true)
   }
 
@@ -76,6 +94,7 @@ export default function CategoriesTabsScreen() {
     setShowModal(false)
     setEditingCategory(null)
     setEditingSubcategory(null)
+    setEditingPaymentMethod(null)
     setName('')
     setCategoryId('')
     setColor('#3B82F6')
@@ -90,11 +109,15 @@ export default function CategoriesTabsScreen() {
         await categoryService.update(editingCategory.id, { name: name.trim(), color })
       } else if (editingSubcategory) {
         await subcategoryService.update(editingSubcategory.id, { name: name.trim(), categoryId, color })
+      } else if (editingPaymentMethod) {
+        await paymentMethodService.update(editingPaymentMethod.id, name.trim())
       } else if (activeTab === 'categories') {
         await categoryService.create({ name: name.trim(), color })
-      } else {
+      } else if (activeTab === 'subcategories') {
         if (!categoryId) return
         await subcategoryService.create({ name: name.trim(), categoryId, color })
+      } else {
+        await paymentMethodService.create(name.trim())
       }
       closeModal()
       loadData()
@@ -107,9 +130,9 @@ export default function CategoriesTabsScreen() {
   }
 
   const handleDelete = async () => {
-    if (!editingCategory && !editingSubcategory) return
+    if (!editingCategory && !editingSubcategory && !editingPaymentMethod) return
 
-    const itemName = editingCategory?.name || editingSubcategory?.name || ''
+    const itemName = editingCategory?.name || editingSubcategory?.name || editingPaymentMethod?.name || ''
     Alert.alert(
       'Excluir',
       `Tem certeza que deseja excluir "${itemName}"?`,
@@ -124,6 +147,8 @@ export default function CategoriesTabsScreen() {
                 await categoryService.delete(editingCategory.id)
               } else if (editingSubcategory) {
                 await subcategoryService.delete(editingSubcategory.id)
+              } else if (editingPaymentMethod) {
+                await paymentMethodService.delete(editingPaymentMethod.id)
               }
               closeModal()
               loadData()
@@ -139,6 +164,15 @@ export default function CategoriesTabsScreen() {
 
   const getCategoryName = (catId: string) => {
     return categories.find(c => c.id === catId)?.name || 'Sem categoria'
+  }
+
+  const getTabTitle = () => {
+    if (editingCategory) return 'Editar Categoria'
+    if (editingSubcategory) return 'Editar Subcategoria'
+    if (editingPaymentMethod) return 'Editar Método'
+    if (activeTab === 'categories') return 'Nova Categoria'
+    if (activeTab === 'subcategories') return 'Nova Subcategoria'
+    return 'Novo Método'
   }
 
   const renderCategoriesList = () => (
@@ -218,13 +252,56 @@ export default function CategoriesTabsScreen() {
     </View>
   )
 
+  const renderPaymentMethodsList = () => (
+    <View style={styles.tabContent}>
+      {loading ? (
+        <Text style={styles.emptyText}>Carregando...</Text>
+      ) : paymentMethods.length === 0 ? (
+        <Text style={styles.emptyText}>Nenhum método de pagamento</Text>
+      ) : (
+        paymentMethods.map((pm) => (
+          <Card key={pm.id} style={styles.card}>
+            <CardContent>
+              <View style={styles.row}>
+                <View style={styles.info}>
+                  <View style={[styles.iconPlaceholder, { backgroundColor: colors.primary + '20' }]}>
+                    <CardIcon size={18} color={colors.primary} />
+                  </View>
+                  <Text style={styles.name}>{pm.name}</Text>
+                </View>
+                <View style={styles.actions}>
+                  <TouchableOpacity onPress={() => openPaymentMethodModal(pm)} style={styles.actionButton}>
+                    <Icons.Pencil size={18} color={colors.secondary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    onPress={() => {
+                      setEditingPaymentMethod(pm)
+                      handleDelete()
+                    }} 
+                    style={styles.actionButton}
+                  >
+                    <Icons.Trash size={18} color={colors.danger} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </CardContent>
+          </Card>
+        ))
+      )}
+    </View>
+  )
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Categorias</Text>
+        <Text style={styles.title}>Gerenciar</Text>
         <TouchableOpacity 
           style={styles.addButton} 
-          onPress={() => activeTab === 'categories' ? openCategoryModal() : openSubcategoryModal()}
+          onPress={() => {
+            if (activeTab === 'categories') openCategoryModal()
+            else if (activeTab === 'subcategories') openSubcategoryModal()
+            else openPaymentMethodModal()
+          }}
         >
           <Icons.Plus size={24} color={colors.foreground} />
         </TouchableOpacity>
@@ -244,7 +321,15 @@ export default function CategoriesTabsScreen() {
           onPress={() => switchTab('subcategories')}
         >
           <Text style={[styles.tabText, activeTab === 'subcategories' && styles.activeTabText]}>
-            Subcategorias
+            Subcats
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'paymentMethods' && styles.activeTab]} 
+          onPress={() => switchTab('paymentMethods')}
+        >
+          <Text style={[styles.tabText, activeTab === 'paymentMethods' && styles.activeTabText]}>
+            Métodos
           </Text>
         </TouchableOpacity>
       </View>
@@ -256,36 +341,33 @@ export default function CategoriesTabsScreen() {
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={(e) => {
           const index = Math.round(e.nativeEvent.contentOffset.x / width)
-          setActiveTab(index === 0 ? 'categories' : 'subcategories')
+          const tabs: TabType[] = ['categories', 'subcategories', 'paymentMethods']
+          setActiveTab(tabs[index])
         }}
         scrollEventThrottle={16}
       >
         {renderCategoriesList()}
         {renderSubcategoriesList()}
+        {renderPaymentMethodsList()}
       </ScrollView>
 
       <Modal
         visible={showModal}
         onClose={closeModal}
-        title={
-          editingCategory 
-            ? 'Editar Categoria' 
-            : editingSubcategory 
-              ? 'Editar Subcategoria' 
-              : activeTab === 'categories' 
-                ? 'Nova Categoria' 
-                : 'Nova Subcategoria'
-        }
+        title={getTabTitle()}
       >
         <View style={styles.modalContent}>
           <Input
             label="Nome"
-            placeholder={activeTab === 'categories' ? 'Nome da categoria' : 'Nome da subcategoria'}
+            placeholder={
+              activeTab === 'categories' ? 'Nome da categoria' : 
+              activeTab === 'subcategories' ? 'Nome da subcategoria' : 'Nome do método'
+            }
             value={name}
             onChangeText={setName}
           />
 
-          {activeTab === 'subcategories' || editingSubcategory ? (
+          {(activeTab === 'subcategories' || editingSubcategory) && (
             <>
               <Text style={styles.label}>Categoria</Text>
               <View style={styles.categoriesGrid}>
@@ -314,10 +396,14 @@ export default function CategoriesTabsScreen() {
                 ))}
               </View>
             </>
-          ) : null}
+          )}
 
-          <Text style={styles.label}>Cor</Text>
-          <ColorPicker value={color} onChange={setColor} />
+          {(activeTab === 'categories' || activeTab === 'subcategories') && !editingPaymentMethod && (
+            <>
+              <Text style={styles.label}>Cor</Text>
+              <ColorPicker value={color} onChange={setColor} />
+            </>
+          )}
 
           <Button
             onPress={handleSubmit}
@@ -325,7 +411,7 @@ export default function CategoriesTabsScreen() {
             disabled={!name.trim() || (activeTab === 'subcategories' && !categoryId)}
             style={styles.submitButton}
           >
-            {editingCategory || editingSubcategory ? 'Salvar' : 'Criar'}
+            {editingCategory || editingSubcategory || editingPaymentMethod ? 'Salvar' : 'Criar'}
           </Button>
         </View>
       </Modal>
@@ -363,7 +449,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: spacing.md,
     marginBottom: spacing.md,
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   tab: {
     flex: 1,
@@ -404,6 +490,13 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
+  },
+  iconPlaceholder: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   name: {
     fontSize: fontSize.md,

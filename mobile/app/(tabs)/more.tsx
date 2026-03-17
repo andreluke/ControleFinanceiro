@@ -105,7 +105,6 @@ export default function MoreScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Financeiro</Text>
-          <MenuItem icon={<Icons.Repeat size={20} />} title="Transações Recorrentes" subtitle="Gerenciar recorrências" />
           <MenuItem icon={<Icons.Download size={20} />} title="Exportar Dados" subtitle="Baixar extrato" />
         </View>
 

@@ -20,3 +20,10 @@ export {
   type CreateBudgetRequest 
 } from './budgets'
 export { categoryService, type Category } from './categories'
+export { subcategoryService, type Subcategory } from './subcategories'
+export { 
+  recurringService, 
+  type RecurringTransaction, 
+  type CreateRecurringRequest,
+  type UpdateRecurringRequest 
+} from './recurring'

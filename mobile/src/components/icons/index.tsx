@@ -176,6 +176,12 @@ export const FolderIcon = ({ size = 24, color = defaultColor }: IconProps) => (
   </Svg>
 )
 
+export const FilterIcon = ({ size = 24, color = defaultColor }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+  </Svg>
+)
+
 export const XIcon = ({ size = 24, color = defaultColor }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <Path d="M18 6L6 18M6 6l12 12" stroke={color} strokeWidth={2} strokeLinecap="round"/>
@@ -228,6 +234,7 @@ export const Icons = {
   Settings: SettingsIcon,
   Target: TargetIcon,
   Folder: FolderIcon,
+  Filter: FilterIcon,
   X: XIcon,
   Pencil: PencilIcon,
   Trash: TrashIcon,

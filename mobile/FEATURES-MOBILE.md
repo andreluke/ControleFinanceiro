@@ -41,6 +41,12 @@
 - [x] Editar subcategoria
 - [x] Deletar subcategoria
 
+### Métodos de Pagamento
+- [x] Lista de métodos de pagamento
+- [x] Criar método de pagamento
+- [x] Editar método de pagamento
+- [x] Deletar método de pagamento
+
 ### UI/UX
 - [x] Ícones SVG (sem emojis)
 - [x] Dark theme
@@ -59,18 +65,18 @@
 ## 📋 Funcionalidades Faltantes
 
 ### Transações
-- [ ] Filtros (por tipo, categoria, data)
-- [ ] Ordenação (data, valor)
-- [ ] Editar transação
-- [ ] Deletar transação
-- [ ] Detalhes da transação (modal)
-- [ ] Transações recorrentes (criar/editar)
+- [x] Filtros (por tipo, categoria, data)
+- [x] Ordenação (data, valor)
+- [x] Editar transação
+- [x] Deletar transação
+- [x] Detalhes da transação (modal)
+- [x] Transações recorrentes (criar/editar)
 
 ### Orçamentos
-- [ ] Criar orçamento (tela completa)
-- [ ] Editar orçamento
-- [ ] Deletar orçamento
-- [ ] Alertas de orçamento接近 limite
+- [x] Criar orçamento (tela completa)
+- [x] Editar orçamento
+- [x] Deletar orçamento
+- [ ] Alertas de orçamento próximo ao limite
 
 ### Categorias
 - [ ] Criar categoria
