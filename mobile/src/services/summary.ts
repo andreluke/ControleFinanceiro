@@ -16,7 +16,7 @@ export interface MonthlySummary {
 export interface CategorySummary {
   categoryId: string
   categoryName: string
-  categoryColor: string
+  color: string
   total: number
   percentage: number
 }

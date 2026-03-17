@@ -3787,6 +3787,7 @@ var SummaryModel = class {
   }
   async getByCategorySummary(userId, filters = {}) {
     const range = resolveRange(filters);
+    const transactionType = filters.type || "expense";
     const expenses = await db.select({
       categoryId: transactions.categoryId,
       categoryName: categories.name,
@@ -3795,7 +3796,7 @@ var SummaryModel = class {
     }).from(transactions).leftJoin(categories, (0, import_drizzle_orm9.eq)(transactions.categoryId, categories.id)).where(
       (0, import_drizzle_orm9.and)(
         (0, import_drizzle_orm9.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm9.eq)(transactions.type, "expense"),
+        (0, import_drizzle_orm9.eq)(transactions.type, transactionType),
         (0, import_drizzle_orm9.gte)(transactions.date, range.start),
         (0, import_drizzle_orm9.lt)(transactions.date, range.endExclusive)
       )
@@ -3819,7 +3820,8 @@ var import_zod9 = require("zod");
 var summaryPeriodSchema = import_zod9.z.enum(["7d", "30d", "month", "previous"]);
 var summaryQuerySchema = import_zod9.z.object({
   month: import_zod9.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
-  period: summaryPeriodSchema.optional()
+  period: summaryPeriodSchema.optional(),
+  type: import_zod9.z.enum(["income", "expense"]).optional()
 });
 
 // src/modules/summary/summary.controller.ts
@@ -3846,9 +3848,9 @@ var SummaryController = class {
   };
   getByCategorySummary = async (request, reply) => {
     const { sub: userId } = request.user;
-    const { month, period } = summaryQuerySchema.parse(request.query);
+    const { month, period, type } = summaryQuerySchema.parse(request.query);
     const [err, byCategory] = await catchError(
-      this.summaryModel.getByCategorySummary(userId, { month, period })
+      this.summaryModel.getByCategorySummary(userId, { month, period, type })
     );
     if (err) throw new AppError("Erro ao obter resumo por categoria", 500);
     return reply.send(byCategory);

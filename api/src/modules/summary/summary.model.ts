@@ -6,6 +6,7 @@ import type { SummaryPeriod } from "./summary.schema";
 interface SummaryFilters {
 	month?: string;
 	period?: SummaryPeriod;
+	type?: 'income' | 'expense';
 }
 
 interface DateRange {
@@ -174,6 +175,7 @@ export class SummaryModel {
 
 	async getByCategorySummary(userId: string, filters: SummaryFilters = {}) {
 		const range = resolveRange(filters);
+		const transactionType = filters.type || 'expense';
 
 		const expenses = await db
 			.select({
@@ -187,7 +189,7 @@ export class SummaryModel {
 			.where(
 				and(
 					eq(transactions.userId, userId),
-					eq(transactions.type, "expense"),
+					eq(transactions.type, transactionType),
 					gte(transactions.date, range.start),
 					lt(transactions.date, range.endExclusive),
 				),

@@ -150,6 +150,13 @@ export default function BudgetsScreen() {
   const totalSpent = budgetList.reduce((sum, b) => sum + (b?.spent || 0), 0)
   const totalRemaining = totalBudgeted - totalSpent
 
+  const overBudgetItems = budgetList.filter(b => b.spent > b.amount)
+  const nearLimitItems = budgetList.filter(b => {
+    const percentage = (b.spent / b.amount) * 100
+    return percentage >= 80 && percentage <= 100
+  })
+  const hasAlerts = overBudgetItems.length > 0 || nearLimitItems.length > 0
+
   const currentMonth = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
 
   return (
@@ -199,6 +206,26 @@ export default function BudgetsScreen() {
         <View style={styles.budgetsSection}>
           <Text style={styles.sectionTitle}>Por Categoria</Text>
 
+          {hasAlerts && (
+            <View style={styles.alertBanner}>
+              <View style={styles.alertBannerIcon}>
+                <Icons.AlertCircle size={20} color={overBudgetItems.length > 0 ? colors.danger : colors.warning} />
+              </View>
+              <View style={styles.alertBannerContent}>
+                <Text style={styles.alertBannerTitle}>
+                  {overBudgetItems.length > 0 
+                    ? `${overBudgetItems.length} orçamento${overBudgetItems.length > 1 ? 's' : ''} excedido${overBudgetItems.length > 1 ? 's' : ''}`
+                    : 'Atenção aos orçamentos'}
+                </Text>
+                <Text style={styles.alertBannerText}>
+                  {overBudgetItems.length > 0 
+                    ? overBudgetItems.map(b => b.category?.name).join(', ')
+                    : `${nearLimitItems.length} próximo${nearLimitItems.length > 1 ? 's' : ''} do limite`}
+                </Text>
+              </View>
+            </View>
+          )}
+
           {loading ? (
             <Text style={styles.loadingText}>Carregando...</Text>
           ) : budgetList.length === 0 ? (
@@ -211,12 +238,24 @@ export default function BudgetsScreen() {
               const categoryColor = budget.category?.color || colors.primary
 
               return (
-                <Card key={budget.id} style={styles.budgetCard}>
+                <Card key={budget.id} style={[styles.budgetCard, isOverBudget && styles.budgetCardAlert]}>
                   <CardContent>
                     <View style={styles.budgetHeader}>
                       <View style={styles.budgetCategory}>
                         <View style={[styles.categoryDot, { backgroundColor: categoryColor }]} />
                         <Text style={styles.budgetCategoryName}>{budget.category?.name || 'Sem categoria'}</Text>
+                        {isOverBudget && (
+                          <View style={styles.alertBadge}>
+                            <Icons.AlertCircle size={12} color={colors.danger} />
+                            <Text style={styles.alertBadgeText}>Excedido</Text>
+                          </View>
+                        )}
+                        {isNearLimit && !isOverBudget && (
+                          <View style={[styles.alertBadge, styles.alertBadgeWarning]}>
+                            <Icons.AlertCircle size={12} color={colors.warning} />
+                            <Text style={[styles.alertBadgeText, styles.alertBadgeTextWarning]}>Próximo</Text>
+                          </View>
+                        )}
                       </View>
                       <View style={styles.budgetActions}>
                         <TouchableOpacity onPress={() => openEditModal(budget)} style={styles.actionButton}>
@@ -236,13 +275,18 @@ export default function BudgetsScreen() {
                     />
 
                     <View style={styles.budgetFooter}>
-                      <Text style={styles.budgetPercentage}>
-                        {percentage.toFixed(0)}%
+                      <Text style={styles.budgetSpent}>
+                        {formatCurrency(budget.spent)}
                       </Text>
                       <Text style={styles.budgetTotal}>
                         de {formatCurrency(budget.amount)}
                       </Text>
                     </View>
+                    {isOverBudget && (
+                      <Text style={styles.overBudgetText}>
+                        Excedido em {formatCurrency(budget.spent - budget.amount)}
+                      </Text>
+                    )}
                   </CardContent>
                 </Card>
               )
@@ -382,6 +426,10 @@ const styles = StyleSheet.create({
   budgetCard: {
     marginBottom: spacing.sm,
   },
+  budgetCardAlert: {
+    borderWidth: 1,
+    borderColor: colors.danger + '40',
+  },
   budgetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -398,7 +446,8 @@ const styles = StyleSheet.create({
   budgetCategory: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: spacing.sm,
+    flex: 1,
   },
   categoryDot: {
     width: 10,
@@ -410,24 +459,85 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
     color: colors.foreground,
   },
+  alertBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.danger + '20',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.full,
+    gap: 4,
+  },
+  alertBadgeWarning: {
+    backgroundColor: colors.warning + '20',
+  },
+  alertBadgeText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+    color: colors.danger,
+  },
+  alertBadgeTextWarning: {
+    color: colors.warning,
+  },
   progressBar: {
     marginBottom: spacing.sm,
   },
   budgetFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
   },
   budgetPercentage: {
     fontSize: fontSize.sm,
     color: colors.secondary,
+    fontWeight: fontWeight.medium,
   },
   budgetSpent: {
     fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
     color: colors.foreground,
   },
   budgetTotal: {
     fontSize: fontSize.sm,
     color: colors.secondary,
+  },
+  overBudgetText: {
+    fontSize: fontSize.sm,
+    color: colors.danger,
+    fontWeight: fontWeight.medium,
+    marginTop: spacing.xs,
+  },
+  alertBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.danger + '15',
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.danger + '30',
+  },
+  alertBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.danger + '20',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alertBannerContent: {
+    flex: 1,
+  },
+  alertBannerTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.danger,
+  },
+  alertBannerText: {
+    fontSize: fontSize.xs,
+    color: colors.secondary,
+    marginTop: 2,
   },
   loadingText: {
     textAlign: 'center',

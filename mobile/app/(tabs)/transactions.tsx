@@ -502,6 +502,7 @@ export default function TransactionsScreen() {
               <View style={styles.categoryInfo}>
                 <View style={[styles.categoryDot, { backgroundColor: selectedTransaction.category?.color || colors.primary }]} />
                 <Text style={styles.detailsValue}>{selectedTransaction.category?.name || 'Sem categoria'}</Text>
+                
               </View>
             </View>
 

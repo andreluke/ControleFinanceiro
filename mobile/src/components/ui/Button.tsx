@@ -1,6 +1,6 @@
 import { forwardRef, type ReactNode } from 'react'
 import { Pressable, Text, ActivityIndicator, View, type ViewProps, type PressableProps } from 'react-native'
-import { colors, borderRadius, fontSize, fontWeight } from '../../theme/tokens'
+import { colors, borderRadius, fontSize, fontWeight, spacing } from '../../theme/tokens'
 
 type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger'
 
@@ -18,7 +18,7 @@ interface ButtonProps extends ViewProps {
 const variantStyles = {
   primary: {
     backgroundColor: colors.primary,
-    color: colors.foreground,
+    color: '#FFFFFF',
     borderColor: 'transparent',
   },
   secondary: {
@@ -27,37 +27,37 @@ const variantStyles = {
     borderColor: 'transparent',
   },
   outline: {
-    backgroundColor: 'transparent',
+    backgroundColor: colors.card,
     color: colors.foreground,
     borderWidth: 1,
     borderColor: colors.border,
   },
   ghost: {
-    backgroundColor: 'transparent',
+    backgroundColor: colors.muted + '40',
     color: colors.foreground,
     borderColor: 'transparent',
   },
   danger: {
     backgroundColor: colors.danger,
-    color: colors.foreground,
+    color: '#FFFFFF',
     borderColor: 'transparent',
   },
 }
 
 const sizeStyles = {
   sm: {
-    height: 36,
-    paddingHorizontal: 12,
+    height: 40,
+    paddingHorizontal: spacing.md,
     fontSize: fontSize.sm,
   },
   md: {
-    height: 44,
-    paddingHorizontal: 16,
+    height: 48,
+    paddingHorizontal: spacing.lg,
     fontSize: fontSize.md,
   },
   lg: {
-    height: 52,
-    paddingHorizontal: 20,
+    height: 56,
+    paddingHorizontal: spacing.xl,
     fontSize: fontSize.lg,
   },
 }
@@ -92,11 +92,18 @@ export const Button = forwardRef<View, ButtonProps>(
             borderColor: variantStyle.borderColor,
             height: sizeStyle.height,
             paddingHorizontal: sizeStyle.paddingHorizontal,
-            borderRadius: borderRadius.md,
+            borderRadius: variant === 'primary' ? 100 : borderRadius.lg,
             alignItems: 'center',
             justifyContent: 'center',
             flexDirection: 'row',
-            gap: 8,
+            gap: spacing.sm,
+          },
+          variant === 'primary' && {
+            shadowColor: colors.primary,
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.4,
+            shadowRadius: 12,
+            elevation: 6,
           },
           disabled && { opacity: 0.5 },
         ]}
