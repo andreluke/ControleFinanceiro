@@ -109,7 +109,12 @@ export default function MoreScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Financeiro</Text>
-          <MenuItem icon={<Icons.Download size={20} />} title="Exportar Dados" subtitle="Baixar extrato" />
+          <MenuItem 
+            icon={<Icons.Download size={20} />} 
+            title="Exportar Dados" 
+            subtitle="Baixar extrato"
+            onPress={() => router.push('/(more)/export')}
+          />
         </View>
 
         <View style={styles.section}>
