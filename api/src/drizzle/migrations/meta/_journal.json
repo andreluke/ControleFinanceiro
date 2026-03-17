@@ -50,6 +50,20 @@
       "when": 1773528970658,
       "tag": "0006_past_randall_flagg",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1773767303621,
+      "tag": "0007_pretty_mantis",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1773768437190,
+      "tag": "0008_careless_morg",
+      "breakpoints": true
     }
   ]
 }

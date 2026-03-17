@@ -29,6 +29,21 @@ export class CategoryModel {
 		return category;
 	}
 
+	async findByName(name: string, userId: string) {
+		const [category] = await db
+			.select()
+			.from(categories)
+			.where(
+				and(
+					eq(categories.name, name),
+					eq(categories.userId, userId),
+					isNull(categories.deletedAt),
+				),
+			)
+			.limit(1);
+		return category;
+	}
+
 	async createCategory(userId: string, data: CreateCategoryInput) {
 		const [category] = await db
 			.insert(categories)
