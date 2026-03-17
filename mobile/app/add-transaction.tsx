@@ -66,7 +66,7 @@ export default function AddTransactionScreen() {
     }
   }
 
-  const filteredCategories = categories.filter(c => c.type === type)
+  const filteredCategories = categories
 
   return (
     <KeyboardAvoidingView

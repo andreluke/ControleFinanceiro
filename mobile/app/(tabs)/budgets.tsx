@@ -1,10 +1,11 @@
-import { View, Text, ScrollView, StyleSheet } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useFocusEffect } from 'expo-router'
-import { Card, CardContent, Progress } from '../../src/components/ui'
+import { Card, CardContent, Progress, Button, Input, Modal } from '../../src/components/ui'
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../src/theme/tokens'
-import { budgetService, type Budget } from '../../src/services'
+import { budgetService, categoryService, type Budget, type Category } from '../../src/services'
+import { Icons } from '../../src/components/icons'
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', {
@@ -16,15 +17,35 @@ const formatCurrency = (value: number) => {
 export default function BudgetsScreen() {
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [loading, setLoading] = useState(true)
+  const [showModal, setShowModal] = useState(false)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [loadingCategories, setLoadingCategories] = useState(true)
+  const [selectedCategory, setSelectedCategory] = useState<string>('')
+  const [amount, setAmount] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [editingBudget, setEditingBudget] = useState<Budget | null>(null)
 
   const loadBudgets = async () => {
     try {
       const data = await budgetService.list()
-      setBudgets(data)
+      if (Array.isArray(data)) {
+        setBudgets(data)
+      }
     } catch (err) {
       console.error('Error loading budgets:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadCategories = async () => {
+    try {
+      const data = await categoryService.list()
+      setCategories(data)
+    } catch (err) {
+      console.error('Error loading categories:', err)
+    } finally {
+      setLoadingCategories(false)
     }
   }
 
@@ -34,8 +55,99 @@ export default function BudgetsScreen() {
     }, [])
   )
 
-  const totalBudgeted = budgets.reduce((sum, b) => sum + b.amount, 0)
-  const totalSpent = budgets.reduce((sum, b) => sum + (b.spent || 0), 0)
+  const openModal = () => {
+    loadCategories()
+    setShowModal(true)
+  }
+
+  const handleModalSubmit = () => {
+    if (editingBudget) {
+      handleUpdateBudget()
+    } else {
+      handleCreateBudget()
+    }
+  }
+
+  const handleCreateBudget = async () => {
+    if (!selectedCategory || !amount) return
+    
+    setIsSubmitting(true)
+    try {
+      const currentDate = new Date()
+      await budgetService.create({
+        categoryId: selectedCategory,
+        amount: parseFloat(amount.replace(',', '.')),
+        month: currentDate.getMonth() + 1,
+        year: currentDate.getFullYear(),
+      })
+      setShowModal(false)
+      setSelectedCategory('')
+      setAmount('')
+      loadBudgets()
+    } catch (err) {
+      console.error('Error creating budget:', err)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const openEditModal = (budget: Budget) => {
+    setEditingBudget(budget)
+    setSelectedCategory(budget.categoryId)
+    setAmount(budget.amount.toString())
+    setShowModal(true)
+  }
+
+  const handleUpdateBudget = async () => {
+    if (!editingBudget || !amount) return
+    
+    setIsSubmitting(true)
+    try {
+      await budgetService.update(editingBudget.id, parseFloat(amount.replace(',', '.')))
+      setShowModal(false)
+      setEditingBudget(null)
+      setSelectedCategory('')
+      setAmount('')
+      loadBudgets()
+    } catch (err) {
+      console.error('Error updating budget:', err)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleDeleteBudget = (budget: Budget) => {
+    Alert.alert(
+      'Excluir Orçamento',
+      `Tem certeza que deseja excluir o orçamento de "${budget.category?.name}"?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await budgetService.delete(budget.id)
+              loadBudgets()
+            } catch (err) {
+              console.error('Error deleting budget:', err)
+            }
+          },
+        },
+      ]
+    )
+  }
+
+  const closeModal = () => {
+    setShowModal(false)
+    setEditingBudget(null)
+    setSelectedCategory('')
+    setAmount('')
+  }
+
+  const budgetList = Array.isArray(budgets) ? budgets : []
+  const totalBudgeted = budgetList.reduce((sum, b) => sum + (b?.amount || 0), 0)
+  const totalSpent = budgetList.reduce((sum, b) => sum + (b?.spent || 0), 0)
   const totalRemaining = totalBudgeted - totalSpent
 
   const currentMonth = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
@@ -43,8 +155,13 @@ export default function BudgetsScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Orçamentos</Text>
-        <Text style={styles.subtitle}>{currentMonth}</Text>
+        <View>
+          <Text style={styles.title}>Orçamentos</Text>
+          <Text style={styles.subtitle}>{currentMonth}</Text>
+        </View>
+        <TouchableOpacity style={styles.addButton} onPress={openModal}>
+          <Icons.Plus size={24} color={colors.foreground} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -84,10 +201,10 @@ export default function BudgetsScreen() {
 
           {loading ? (
             <Text style={styles.loadingText}>Carregando...</Text>
-          ) : budgets.length === 0 ? (
+          ) : budgetList.length === 0 ? (
             <Text style={styles.emptyText}>Nenhum orçamento criado</Text>
           ) : (
-            budgets.map((budget) => {
+            budgetList.map((budget) => {
               const percentage = totalBudgeted > 0 ? (budget.spent / budget.amount) * 100 : 0
               const isOverBudget = percentage > 100
               const isNearLimit = percentage >= 80 && percentage <= 100
@@ -101,9 +218,14 @@ export default function BudgetsScreen() {
                         <View style={[styles.categoryDot, { backgroundColor: categoryColor }]} />
                         <Text style={styles.budgetCategoryName}>{budget.category?.name || 'Sem categoria'}</Text>
                       </View>
-                      <Text style={styles.budgetSpent}>
-                        {formatCurrency(budget.spent || 0)}
-                      </Text>
+                      <View style={styles.budgetActions}>
+                        <TouchableOpacity onPress={() => openEditModal(budget)} style={styles.actionButton}>
+                          <Icons.Pencil size={18} color={colors.secondary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => handleDeleteBudget(budget)} style={styles.actionButton}>
+                          <Icons.Trash size={18} color={colors.danger} />
+                        </TouchableOpacity>
+                      </View>
                     </View>
 
                     <Progress
@@ -128,6 +250,62 @@ export default function BudgetsScreen() {
           )}
         </View>
       </ScrollView>
+
+      <Modal visible={showModal} onClose={closeModal} title={editingBudget ? 'Editar Orçamento' : 'Novo Orçamento'}>
+        <View style={styles.modalContent}>
+          {!editingBudget && (
+            <>
+              <Text style={styles.label}>Categoria</Text>
+              {loadingCategories ? (
+                <Text style={styles.loadingText}>Carregando...</Text>
+              ) : (
+                <View style={styles.categoriesGrid}>
+                  {categories.map((category) => (
+                    <TouchableOpacity
+                      key={category.id}
+                      style={[
+                        styles.categoryButton,
+                        selectedCategory === category.id && {
+                          borderColor: category.color,
+                          backgroundColor: category.color + '20',
+                        },
+                      ]}
+                      onPress={() => setSelectedCategory(category.id)}
+                    >
+                      <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
+                      <Text
+                        style={[
+                          styles.categoryName,
+                          selectedCategory === category.id && { color: category.color },
+                        ]}
+                      >
+                        {category.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </>
+          )}
+
+          <Input
+            label="Valor"
+            placeholder="0,00"
+            value={amount}
+            onChangeText={setAmount}
+            keyboardType="decimal-pad"
+          />
+
+          <Button
+            onPress={handleModalSubmit}
+            isLoading={isSubmitting}
+            disabled={!amount}
+            style={styles.createButton}
+          >
+            {editingBudget ? 'Salvar' : 'Criar Orçamento'}
+          </Button>
+        </View>
+      </Modal>
     </SafeAreaView>
   )
 }
@@ -138,9 +316,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: spacing.md,
     paddingTop: spacing.xl,
     paddingBottom: spacing.md,
+  },
+  addButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     fontSize: fontSize.xxl,
@@ -199,6 +388,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.sm,
   },
+  budgetActions: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  actionButton: {
+    padding: spacing.xs,
+  },
   budgetCategory: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -213,9 +409,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
     color: colors.foreground,
-  },
-  budgetProgress: {
-    marginBottom: spacing.sm,
   },
   progressBar: {
     marginBottom: spacing.sm,
@@ -245,5 +438,35 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: colors.secondary,
     paddingVertical: spacing.lg,
+  },
+  modalContent: {
+    gap: spacing.md,
+  },
+  label: {
+    fontSize: fontSize.sm,
+    color: colors.secondary,
+    fontWeight: '500',
+  },
+  categoriesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  categoryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xs,
+  },
+  categoryName: {
+    fontSize: fontSize.sm,
+    color: colors.secondary,
+  },
+  createButton: {
+    marginTop: spacing.md,
   },
 })

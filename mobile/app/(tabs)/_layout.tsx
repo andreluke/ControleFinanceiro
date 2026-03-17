@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router'
 import { View, StyleSheet, Platform } from 'react-native'
 import { colors } from '../../src/theme/tokens'
-import { HomeIcon, CardIcon, ChartIcon, MenuIcon, PlusIcon } from '../../src/components/icons'
+import { HomeIcon, CardIcon, ChartIcon, MenuIcon, PlusIcon, FolderIcon } from '../../src/components/icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
@@ -14,6 +14,8 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
       return <CardIcon color={iconColor} size={22} />
     case 'budgets':
       return <ChartIcon color={iconColor} size={22} />
+    case 'categories':
+      return <FolderIcon color={iconColor} size={22} />
     case 'more':
       return <MenuIcon color={iconColor} size={22} />
     default:
@@ -78,6 +80,13 @@ export default function TabsLayout() {
         options={{
           title: 'Orçamentos',
           tabBarIcon: ({ focused }) => <TabIcon name="budgets" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="categories"
+        options={{
+          title: 'Categorias',
+          tabBarIcon: ({ focused }) => <TabIcon name="categories" focused={focused} />,
         }}
       />
       <Tabs.Screen

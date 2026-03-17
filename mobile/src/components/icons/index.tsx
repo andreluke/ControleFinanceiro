@@ -170,6 +170,38 @@ export const TargetIcon = ({ size = 24, color = defaultColor }: IconProps) => (
   </Svg>
 )
 
+export const FolderIcon = ({ size = 24, color = defaultColor }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2v11z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+  </Svg>
+)
+
+export const XIcon = ({ size = 24, color = defaultColor }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M18 6L6 18M6 6l12 12" stroke={color} strokeWidth={2} strokeLinecap="round"/>
+  </Svg>
+)
+
+export const PencilIcon = ({ size = 24, color = defaultColor }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+    <Path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+  </Svg>
+)
+
+export const TrashIcon = ({ size = 24, color = colors.danger }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+  </Svg>
+)
+
+export const TagIcon = ({ size = 24, color = defaultColor }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+    <Path d="M7 7h.01" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+  </Svg>
+)
+
 export const Icons = {
   Home: HomeIcon,
   Card: CardIcon,
@@ -195,4 +227,9 @@ export const Icons = {
   Wallet: WalletIcon,
   Settings: SettingsIcon,
   Target: TargetIcon,
+  Folder: FolderIcon,
+  X: XIcon,
+  Pencil: PencilIcon,
+  Trash: TrashIcon,
+  Tag: TagIcon,
 }

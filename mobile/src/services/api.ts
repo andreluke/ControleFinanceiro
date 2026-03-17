@@ -47,8 +47,11 @@ class ApiClient {
   }
 
   async get<T>(endpoint: string, params?: Record<string, string | number | undefined>): Promise<T> {
-    const url = params
-      ? `${endpoint}?${new URLSearchParams(params as Record<string, string>).toString()}`
+    const filteredParams = params 
+      ? Object.fromEntries(Object.entries(params).filter(([_, v]) => v !== undefined))
+      : undefined
+    const url = filteredParams
+      ? `${endpoint}?${new URLSearchParams(filteredParams as Record<string, string>).toString()}`
       : endpoint
     return this.request<T>(url, { method: 'GET' })
   }
@@ -69,6 +72,13 @@ class ApiClient {
 
   async delete<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'DELETE' })
+  }
+
+  async patch<T>(endpoint: string, data?: unknown): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'PATCH',
+      body: data ? JSON.stringify(data) : undefined,
+    })
   }
 }
 
