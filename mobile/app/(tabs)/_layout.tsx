@@ -9,6 +9,7 @@ import {
   PlusIcon,
   FolderIcon,
   RepeatIcon,
+  TargetIcon,
 } from "../../src/components/icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -22,6 +23,8 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
       return <CardIcon color={iconColor} size={22} />;
     case "budgets":
       return <ChartIcon color={iconColor} size={22} />;
+    case "goals":
+      return <TargetIcon color={iconColor} size={22} />;
     case "categories":
       return <FolderIcon color={iconColor} size={22} />;
     case "recurring":
@@ -95,6 +98,15 @@ export default function TabsLayout() {
           title: "Recorrentes",
           tabBarIcon: ({ focused }) => (
             <TabIcon name="recurring" focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="goals"
+        options={{
+          title: "Metas",
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="goals" focused={focused} />
           ),
         }}
       />

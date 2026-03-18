@@ -127,6 +127,31 @@ export async function registerGoalsRoutes(app: FastifyInstance) {
 		controller.contribute,
 	);
 
+	app.post(
+		"/goals/:id/withdraw",
+		{
+			schema: {
+				description: "Saca valor de uma meta",
+				tags: ["Goals"],
+				security: [{ bearerAuth: [] }],
+				params: {
+					type: "object",
+					properties: {
+						id: { type: "string", format: "uuid" },
+					},
+				},
+				body: {
+					type: "object",
+					required: ["amount"],
+					properties: {
+						amount: { type: "number", exclusiveMinimum: 0 },
+					},
+				},
+			},
+		},
+		controller.withdraw,
+	);
+
 	app.delete(
 		"/goals/:id",
 		{
@@ -143,5 +168,41 @@ export async function registerGoalsRoutes(app: FastifyInstance) {
 			},
 		},
 		controller.delete,
+	);
+
+	app.get(
+		"/goals/:id/contributions",
+		{
+			schema: {
+				description: "Lista contribuições de uma meta",
+				tags: ["Goals"],
+				security: [{ bearerAuth: [] }],
+				params: {
+					type: "object",
+					properties: {
+						id: { type: "string", format: "uuid" },
+					},
+				},
+			},
+		},
+		controller.listContributions,
+	);
+
+	app.delete(
+		"/goals/contributions/:id",
+		{
+			schema: {
+				description: "Remove uma contribuição",
+				tags: ["Goals"],
+				security: [{ bearerAuth: [] }],
+				params: {
+					type: "object",
+					properties: {
+						id: { type: "string", format: "uuid" },
+					},
+				},
+			},
+		},
+		controller.removeContribution,
 	);
 }

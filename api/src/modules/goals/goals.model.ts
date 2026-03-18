@@ -1,14 +1,17 @@
 import { eq } from "drizzle-orm";
 import { db } from "../../drizzle/client";
-import { goals } from "../../drizzle/schema";
+import { goals, goalContributions } from "../../drizzle/schema";
 import type { CreateGoalInput, UpdateGoalInput } from "./goals.schema";
 import { CategoryModel } from "../categories/categories.model";
+import { PaymentMethodModel } from "../payment-methods/payment-methods.model";
 import { TransactionModel } from "../transactions/transactions.model";
 
-const categoryModel = new CategoryModel();
-const transactionModel = new TransactionModel();
-
 export class GoalsModel {
+	constructor(
+		private readonly categoryModel = new CategoryModel(),
+		private readonly paymentMethodModel = new PaymentMethodModel(),
+		private readonly transactionModel = new TransactionModel(),
+	) {}
   async findAll(userId: string) {
     const result = await db
       .select({
@@ -102,11 +105,10 @@ export class GoalsModel {
     if (!goal || goal.userId !== userId) return null;
 
     let categoryId = goal.categoryId;
-
     if (!categoryId) {
-      let category = await categoryModel.findByName("Meta", userId);
+      let category = await this.categoryModel.findByName("Meta", userId);
       if (!category) {
-        category = await categoryModel.createCategory(userId, {
+        category = await this.categoryModel.createCategory(userId, {
           name: "Meta",
           color: "#6B7280",
         });
@@ -114,26 +116,146 @@ export class GoalsModel {
       categoryId = category.id;
     }
 
-    await transactionModel.createTransaction(userId, {
+    let paymentMethod = await this.paymentMethodModel.findByName("Interno", userId);
+    if (!paymentMethod) {
+      paymentMethod = await this.paymentMethodModel.createMethod(userId, {
+        name: "Interno",
+      });
+    }
+
+    const transaction = await this.transactionModel.createTransaction(userId, {
       description: `Meta: ${goal.name}`,
       amount: amount,
-      type: "income",
+      type: "expense",
       date: new Date().toISOString(),
       categoryId: categoryId,
+      paymentMethodId: paymentMethod.id,
     });
 
     const newAmount = Number(goal.currentAmount) + amount;
 
-    const [result] = await db
+    await db
       .update(goals)
       .set({
         currentAmount: newAmount.toString(),
         categoryId: categoryId,
       })
-      .where(eq(goals.id, id))
+      .where(eq(goals.id, id));
+
+    const [contribution] = await db
+      .insert(goalContributions)
+      .values({
+        goalId: id,
+        transactionId: transaction.id,
+        type: "deposit",
+        amount: amount.toString(),
+      })
       .returning();
 
+    return { contribution, goal: { ...goal, currentAmount: newAmount.toString() } };
+  }
+
+  async withdraw(userId: string, id: string, amount: number) {
+    const goal = await this.findById(id);
+    if (!goal || goal.userId !== userId) return null;
+
+    const currentAmount = Number(goal.currentAmount);
+    if (amount > currentAmount) {
+      throw new Error("Valor maior que o saldo disponível");
+    }
+
+    let categoryId = goal.categoryId;
+    if (!categoryId) {
+      let category = await this.categoryModel.findByName("Meta", userId);
+      if (!category) {
+        category = await this.categoryModel.createCategory(userId, {
+          name: "Meta",
+          color: "#6B7280",
+        });
+      }
+      categoryId = category.id;
+    }
+
+    let paymentMethod = await this.paymentMethodModel.findByName("Interno", userId);
+    if (!paymentMethod) {
+      paymentMethod = await this.paymentMethodModel.createMethod(userId, {
+        name: "Interno",
+      });
+    }
+
+    const transaction = await this.transactionModel.createTransaction(userId, {
+      description: `Saque: ${goal.name}`,
+      amount: amount,
+      type: "income",
+      date: new Date().toISOString(),
+      categoryId: categoryId,
+      paymentMethodId: paymentMethod.id,
+    });
+
+    const newAmount = currentAmount - amount;
+
+    await db
+      .update(goals)
+      .set({
+        currentAmount: newAmount.toString(),
+      })
+      .where(eq(goals.id, id));
+
+    const [withdrawal] = await db
+      .insert(goalContributions)
+      .values({
+        goalId: id,
+        transactionId: transaction.id,
+        type: "withdrawal",
+        amount: amount.toString(),
+      })
+      .returning();
+
+    return { withdrawal, goal: { ...goal, currentAmount: newAmount.toString() } };
+  }
+
+  async findContributionsByGoalId(goalId: string) {
+    const result = await db
+      .select({
+        id: goalContributions.id,
+        goalId: goalContributions.goalId,
+        transactionId: goalContributions.transactionId,
+        type: goalContributions.type,
+        amount: goalContributions.amount,
+        createdAt: goalContributions.createdAt,
+      })
+      .from(goalContributions)
+      .where(eq(goalContributions.goalId, goalId))
+      .orderBy(goalContributions.createdAt);
+
     return result;
+  }
+
+  async removeContribution(userId: string, contributionId: string) {
+    const [contribution] = await db
+      .select()
+      .from(goalContributions)
+      .where(eq(goalContributions.id, contributionId))
+      .limit(1);
+
+    if (!contribution) return null;
+
+    const goal = await this.findById(contribution.goalId);
+    if (!goal || goal.userId !== userId) return null;
+
+    await this.transactionModel.deleteTransaction(contribution.transactionId, userId);
+
+    const newAmount = Number(goal.currentAmount) - Number(contribution.amount);
+    await db
+      .update(goals)
+      .set({ currentAmount: newAmount.toString() })
+      .where(eq(goals.id, goal.id));
+
+    await db
+      .delete(goalContributions)
+      .where(eq(goalContributions.id, contributionId));
+
+    return { removed: contribution, goal: { ...goal, currentAmount: newAmount.toString() } };
   }
 
   async delete(id: string) {
@@ -142,3 +264,5 @@ export class GoalsModel {
     return result;
   }
 }
+
+export const goalsModel = new GoalsModel();

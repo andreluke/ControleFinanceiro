@@ -1,0 +1,1 @@
+ALTER TABLE "budgets" ADD COLUMN "base_amount" numeric(12, 2);

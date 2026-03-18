@@ -61,6 +61,8 @@ Ao contribuir com uma meta (POST /goals/:id/contribute):
 4. **PUT /goals/:id** - Atualiza meta
 5. **DELETE /goals/:id** - Remove meta
 6. **POST /goals/:id/contribute** - Adiciona valor à meta
+7. **GET /goals/:id/contributions** - Lista contribuições de uma meta
+8. **DELETE /goals/contributions/:id** - Remove uma contribuição
 
 ### Campos do Schema
 - `name`: Nome da meta (obrigatório)
@@ -73,47 +75,59 @@ Ao contribuir com uma meta (POST /goals/:id/contribute):
 - `isActive`: Meta ativa (padrão true)
 
 ### Arquivos Backend
-- `api/src/drizzle/schema.ts` - Tabela goals
-- `api/src/modules/goals/goals.model.ts` - Modelo com métodos CRUD e contribute
+- `api/src/drizzle/schema.ts` - Tabela goals e goalContributions
+- `api/src/modules/goals/goals.model.ts` - Modelo com métodos CRUD, contribute e contributions
 - `api/src/modules/goals/goals.controller.ts` - Controlador com validação e autorização
 - `api/src/modules/goals/goals.routes.ts` - Rotas da API
 - `api/src/modules/goals/goals.schema.ts` - Schemas Zod para validação
 - `api/src/modules/goals/goals.types.ts` - Tipos TypeScript
 - `api/src/drizzle/migrations/0008_goals_category_id.sql` - Migration para category_id
+- `api/src/drizzle/migrations/0009_goal_contributions.sql` - Migration para tabela de contribuicoes
 
 ## Frontend - Página
 
 ### KPIs na Página de Metas
 1. **Total Economizado** - Soma de currentAmount de todas as metas
 2. **Total Faltante** - Quanto falta para atingir todas as metas
-3. **Metas Concluídas** - Quantas metas atingiram o targetAmount
+3. **Metas Concluidas** - Quantas metas atingiram o targetAmount
 4. **Metas Ativas** - Quantas metas ativas (isActive = true)
 
 ### Componentes UI
 
 #### GoalCard (`web/src/pages/components/GoalCard.tsx`)
-- Nome e ícone/color
+- Nome e icone/color
 - Barra de progresso
 - Valor atual / Valor alvo
 - Data limite (se houver)
-- Botão "Contribuir" (apenas quando meta não concluída)
-- Botões de editar e excluir
+- Botao "Contribuir" (apenas quando meta nao concluida)
+- Botoes de editar e excluir
 
 #### GoalModal (`web/src/pages/components/GoalModal.tsx`)
-Modal único para criar, editar e contribuir:
+Modal com 3 modos de operacao:
 
-**Modo Criar/Editar:**
-- Nome da meta
-- Descrição (opcional)
-- Valor alvo
-- Prazo (datepicker com calendário)
-- Cor (seleção de cores predefinidas)
-- Botão "Contribuir" (apenas no modo edição)
+**Modo Visualizar/Editar (view):**
+- Informacoes da meta (guardado, meta, progresso)
+- Nome, descricao, valor alvo, prazo, cor
+- Botoes "Depositar" e "Sacar"
+- Historico de depositos
 
-**Modo Contribuir:**
-- Informações da meta (nome, atual/target)
-- Input de valor com formatação de moeda (R$)
-- Validação de valor positivo
+**Modo Depositar (deposit):**
+- Informacoes da meta
+- Input de valor com formatacao de moeda (R$)
+- Cria transacao DESPESA (dinheiro sai da conta principal)
+- Aumenta saldo da meta
+
+**Modo Sacar (withdraw):**
+- Informacoes da meta
+- Input de valor com formatacao de moeda (R$)
+- Cria transacao RECEITA (dinheiro volta para a conta)
+- Diminui saldo da meta
+
+**Historico de Transacoes:**
+- Lista todas as transacoes (depositos e saques)
+- Depositos: texto verde com icone de seta para cima (+)
+- Saques: texto vermelho com icone de seta para baixo (-)
+- Cada transacao pode ser removida
 
 #### GoalsPage (`web/src/pages/GoalsPage.tsx`)
 - Header com botão "Criar meta"
@@ -145,17 +159,51 @@ Modal único para criar, editar e contribuir:
 - Metas com contribuição automática mensal
 - Notificações de progresso
 - Metas compartilhadas (família)
-- Histórico de contribuições
 - Widget no dashboard
 
-## Implementação Concluída
-1. ✅ Banco (Tabela)
+## Implementacao Concluida
+1. ✅ Banco (Tabela goals)
 2. ✅ API CRUD
-3. ✅ Página com KPIs
+3. ✅ Pagina com KPIs
 4. ✅ Cards de metas
 5. ✅ Modal de criar/editar
-6. ✅ Contribuir com valores
-7. ✅ Integração com transações (categoria "Meta")
-8. ✅ Datepicker com calendário
-9. ✅ Input de moeda com formatação
-10. ✅ Botão contribuir no card
+6. ✅ Depositar (transacao DESPESA)
+7. ✅ Sacar (transacao RECEITA)
+8. ✅ Integracao com transacoes (categoria "Meta")
+9. ✅ Datepicker com calendario
+10. ✅ Input de moeda com formatacao
+11. ✅ Botao depositar/sacar no card
+12. ✅ Historico de transacoes (depositos e saques distintos)
+13. ✅ Remover transacao (deposito ou saque)
+
+## Mobile - Implementação
+
+### Arquivos Criados
+- `mobile/src/services/goals.ts` - Service com CRUD, contribute, withdraw e cache
+- `mobile/app/(tabs)/goals.tsx` - Tela com KPIs, cards e modais
+- `mobile/app/(tabs)/_layout.tsx` - Adicionado tab "Metas"
+- `mobile/src/components/icons/index.tsx` - Adicionado ícone History
+
+### Funcionalidades Mobile
+1. ✅ Tela de metas com KPIs
+2. ✅ Cards com barra de progresso
+3. ✅ Modal criar/editar meta
+4. ✅ Modal depositar valor (transação de despesa)
+5. ✅ Modal sacar valor (transação de receita)
+6. ✅ Histórico de movimentações (depósitos verdes, saques amarelos)
+7. ✅ Remover movimentação
+8. ✅ Datepicker nativo
+9. ✅ Seleção de cores
+10. ✅ Cache com SecureStore
+11. ✅ Integração com API
+
+### Endpoints Utilizados
+- `GET /goals` - Lista metas
+- `POST /goals` - Cria meta
+- `GET /goals/:id` - Detalha meta
+- `PUT /goals/:id` - Atualiza meta
+- `DELETE /goals/:id` - Remove meta
+- `POST /goals/:id/contribute` - Deposita valor
+- `POST /goals/:id/withdraw` - Saca valor
+- `GET /goals/:id/contributions` - Lista movimentações
+- `DELETE /goals/contributions/:id` - Remove movimentação

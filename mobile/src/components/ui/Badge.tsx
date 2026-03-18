@@ -1,11 +1,13 @@
 import { Text, View, StyleSheet } from 'react-native'
 import { colors, borderRadius, fontSize, fontWeight } from '../../theme/tokens'
 
-type BadgeVariant = 'default' | 'success' | 'danger' | 'warning' | 'primary'
+type BadgeVariant = 'default' | 'success' | 'danger' | 'warning' | 'primary' | 'info' | 'secondary' | 'custom'
 
 interface BadgeProps {
   variant?: BadgeVariant
   children: React.ReactNode
+  style?: object
+  bgColor?: string
 }
 
 const variantStyles = {
@@ -29,19 +31,35 @@ const variantStyles = {
     backgroundColor: colors.primary + '20',
     color: colors.primary,
   },
+  info: {
+    backgroundColor: '#3B82F6' + '20',
+    color: '#3B82F6',
+  },
+  secondary: {
+    backgroundColor: colors.secondary + '20',
+    color: colors.secondary,
+  },
+  custom: {
+    backgroundColor: 'transparent',
+    color: colors.foreground,
+  },
 }
 
-export function Badge({ variant = 'default', children }: BadgeProps) {
+export function Badge({ variant = 'default', children, style, bgColor }: BadgeProps) {
   const variantStyle = variantStyles[variant]
+  const isCustom = variant === 'custom' && bgColor
 
   return (
     <View
       style={[
         styles.badge,
-        { backgroundColor: variantStyle.backgroundColor },
+        isCustom 
+          ? { backgroundColor: bgColor + '20', borderWidth: 1, borderColor: bgColor }
+          : { backgroundColor: variantStyle.backgroundColor },
+        style,
       ]}
     >
-      <Text style={[styles.text, { color: variantStyle.color }]}>{children}</Text>
+      <Text style={[styles.text, { color: isCustom ? bgColor : variantStyle.color }]}>{children}</Text>
     </View>
   )
 }

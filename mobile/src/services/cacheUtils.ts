@@ -46,6 +46,7 @@ export async function clearKeys(...keys: string[]): Promise<void> {
 }
 
 export const cacheUtils = {
+  clearKeys,
   invalidateSummary: async () => {
     await clearKeys(CACHE_KEYS.SUMMARY, CACHE_KEYS.SUMMARY_MONTHLY)
   },
@@ -64,6 +65,9 @@ export const cacheUtils = {
   },
   invalidateRecurring: async () => {
     await clearKeys(CACHE_KEYS.RECURRING)
+  },
+  invalidateGoals: async () => {
+    await clearKeys(CACHE_KEYS.GOALS)
   },
   invalidateAll: async () => {
     await clearCache()

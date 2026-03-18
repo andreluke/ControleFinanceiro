@@ -1,0 +1,1 @@
+ALTER TABLE "goal_contributions" ADD COLUMN "type" text DEFAULT 'deposit' NOT NULL;

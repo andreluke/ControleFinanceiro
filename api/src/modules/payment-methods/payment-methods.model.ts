@@ -85,4 +85,19 @@ export class PaymentMethodModel {
 			.returning();
 		return restored;
 	}
+
+	async findByName(name: string, userId: string) {
+		const [method] = await db
+			.select()
+			.from(paymentMethods)
+			.where(
+				and(
+					eq(paymentMethods.userId, userId),
+					eq(paymentMethods.name, name),
+					isNull(paymentMethods.deletedAt),
+				),
+			)
+			.limit(1);
+		return method;
+	}
 }

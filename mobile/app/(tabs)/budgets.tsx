@@ -2,7 +2,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'rea
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useState, useCallback, useEffect } from 'react'
 import { useFocusEffect } from 'expo-router'
-import { Card, CardContent, Progress, Button, Input, Modal } from '../../src/components/ui'
+import { Card, CardContent, Progress, Button, Input, Modal, Badge } from '../../src/components/ui'
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../src/theme/tokens'
 import { budgetService, categoryService, type Budget, type Category } from '../../src/services'
 import { Icons } from '../../src/components/icons'
@@ -22,6 +22,7 @@ export default function BudgetsScreen() {
   const [loadingCategories, setLoadingCategories] = useState(true)
   const [selectedCategory, setSelectedCategory] = useState<string>('')
   const [amount, setAmount] = useState('')
+  const [isRecurring, setIsRecurring] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null)
 
@@ -57,6 +58,7 @@ export default function BudgetsScreen() {
 
   const openModal = () => {
     loadCategories()
+    setIsRecurring(false)
     setShowModal(true)
   }
 
@@ -79,10 +81,12 @@ export default function BudgetsScreen() {
         amount: parseFloat(amount.replace(',', '.')),
         month: currentDate.getMonth() + 1,
         year: currentDate.getFullYear(),
+        isRecurring,
       })
       setShowModal(false)
       setSelectedCategory('')
       setAmount('')
+      setIsRecurring(false)
       loadBudgets()
     } catch (err) {
       console.error('Error creating budget:', err)
@@ -94,7 +98,8 @@ export default function BudgetsScreen() {
   const openEditModal = (budget: Budget) => {
     setEditingBudget(budget)
     setSelectedCategory(budget.categoryId)
-    setAmount(budget.amount.toString())
+    setAmount(budget.baseAmount !== undefined ? budget.baseAmount.toString() : budget.amount.toString())
+    setIsRecurring(budget.isRecurring || false)
     setShowModal(true)
   }
 
@@ -138,11 +143,37 @@ export default function BudgetsScreen() {
     )
   }
 
+  const handleToggle = async (budget: Budget) => {
+    if (!budget.isRecurring) return
+    
+    Alert.alert(
+      budget.isActive ? 'Desativar Orçamento' : 'Ativar Orçamento',
+      budget.isActive 
+        ? 'Deseja desativar este orçamento? Ele não será recriado no próximo mês.'
+        : 'Deseja ativar este orçamento?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Confirmar',
+          onPress: async () => {
+            try {
+              await budgetService.toggle(budget.id)
+              loadBudgets()
+            } catch (err) {
+              console.error('Error toggling budget:', err)
+            }
+          },
+        },
+      ]
+    )
+  }
+
   const closeModal = () => {
     setShowModal(false)
     setEditingBudget(null)
     setSelectedCategory('')
     setAmount('')
+    setIsRecurring(false)
   }
 
   const budgetList = Array.isArray(budgets) ? budgets : []
@@ -236,28 +267,56 @@ export default function BudgetsScreen() {
               const isOverBudget = percentage > 100
               const isNearLimit = percentage >= 80 && percentage <= 100
               const categoryColor = budget.category?.color || colors.primary
+              const isInactive = budget.isRecurring && budget.isActive === false
 
               return (
-                <Card key={budget.id} style={[styles.budgetCard, isOverBudget && styles.budgetCardAlert]}>
+                <Card key={budget.id} style={[
+                  styles.budgetCard, 
+                  isOverBudget && styles.budgetCardAlert,
+                  isInactive && styles.budgetCardInactive
+                ]}>
                   <CardContent>
                     <View style={styles.budgetHeader}>
                       <View style={styles.budgetCategory}>
                         <View style={[styles.categoryDot, { backgroundColor: categoryColor }]} />
-                        <Text style={styles.budgetCategoryName}>{budget.category?.name || 'Sem categoria'}</Text>
-                        {isOverBudget && (
-                          <View style={styles.alertBadge}>
-                            <Icons.AlertCircle size={12} color={colors.danger} />
-                            <Text style={styles.alertBadgeText}>Excedido</Text>
+                        <View style={styles.categoryInfo}>
+                          <View style={styles.categoryNameRow}>
+                            <Text style={styles.budgetCategoryName}>
+                              {budget.category?.name || 'Sem categoria'}
+                              {budget.subcategory && (
+                                <Text style={styles.subcategoryText}> / {budget.subcategory.name}</Text>
+                              )}
+                            </Text>
+                            {budget.isRecurring && (
+                              <Badge variant="info" style={styles.badge}>Recorrente</Badge>
+                            )}
+                            {budget.baseAmount !== undefined && !budget.subcategoryId && (
+                              <Badge variant="secondary" style={styles.badge}>Calculado</Badge>
+                            )}
                           </View>
-                        )}
-                        {isNearLimit && !isOverBudget && (
-                          <View style={[styles.alertBadge, styles.alertBadgeWarning]}>
-                            <Icons.AlertCircle size={12} color={colors.warning} />
-                            <Text style={[styles.alertBadgeText, styles.alertBadgeTextWarning]}>Próximo</Text>
-                          </View>
-                        )}
+                          {isOverBudget && (
+                            <View style={styles.alertBadge}>
+                              <Icons.AlertCircle size={12} color={colors.danger} />
+                              <Text style={styles.alertBadgeText}>Excedido</Text>
+                            </View>
+                          )}
+                          {isNearLimit && !isOverBudget && (
+                            <View style={[styles.alertBadge, styles.alertBadgeWarning]}>
+                              <Icons.AlertCircle size={12} color={colors.warning} />
+                              <Text style={[styles.alertBadgeText, styles.alertBadgeTextWarning]}>Próximo</Text>
+                            </View>
+                          )}
+                        </View>
                       </View>
                       <View style={styles.budgetActions}>
+                        {budget.isRecurring && (
+                          <TouchableOpacity 
+                            onPress={() => handleToggle(budget)} 
+                            style={styles.actionButton}
+                          >
+                            <Icons.AlertCircle size={18} color={isInactive ? colors.secondary : colors.success} />
+                          </TouchableOpacity>
+                        )}
                         <TouchableOpacity onPress={() => openEditModal(budget)} style={styles.actionButton}>
                           <Icons.Pencil size={18} color={colors.secondary} />
                         </TouchableOpacity>
@@ -275,12 +334,25 @@ export default function BudgetsScreen() {
                     />
 
                     <View style={styles.budgetFooter}>
-                      <Text style={styles.budgetSpent}>
-                        {formatCurrency(budget.spent)}
-                      </Text>
-                      <Text style={styles.budgetTotal}>
-                        de {formatCurrency(budget.amount)}
-                      </Text>
+                      <View>
+                        <Text style={styles.budgetSpent}>
+                          {formatCurrency(budget.spent)}
+                        </Text>
+                        <Text style={styles.budgetTotal}>
+                          de {formatCurrency(budget.amount)}
+                        </Text>
+                        {budget.baseAmount !== undefined && budget.baseAmount > 0 && (
+                          <Text style={styles.budgetBase}>
+                            Base: {formatCurrency(budget.baseAmount)}
+                            {budget.subcategoriesTotal !== undefined && budget.subcategoriesTotal > 0 && (
+                              ` + Sub: ${formatCurrency(budget.subcategoriesTotal)}`
+                            )}
+                          </Text>
+                        )}
+                      </View>
+                      {isInactive && (
+                        <Text style={styles.inactiveText}>Inativo</Text>
+                      )}
                     </View>
                     {isOverBudget && (
                       <Text style={styles.overBudgetText}>
@@ -332,13 +404,45 @@ export default function BudgetsScreen() {
             </>
           )}
 
+          {editingBudget && editingBudget.baseAmount !== undefined && (
+            <View style={styles.infoBox}>
+              <Text style={styles.infoText}>
+                Este orçamento é calculado automaticamente.
+              </Text>
+              <Text style={styles.infoSubtext}>
+                Valor base: {formatCurrency(editingBudget.baseAmount)}
+                {editingBudget.subcategoriesTotal !== undefined && editingBudget.subcategoriesTotal > 0 && (
+                  ` + Subcategorias: ${formatCurrency(editingBudget.subcategoriesTotal)}`
+                )}
+              </Text>
+              <Text style={styles.infoSubtext}>
+                Total: {formatCurrency(editingBudget.amount)}
+              </Text>
+            </View>
+          )}
+
           <Input
-            label="Valor"
+            label={editingBudget && editingBudget.baseAmount !== undefined ? 'Valor Base' : 'Valor'}
             placeholder="0,00"
             value={amount}
             onChangeText={setAmount}
             keyboardType="decimal-pad"
           />
+
+          <View style={styles.toggleRow}>
+            <View style={styles.toggleInfo}>
+              <Text style={styles.toggleLabel}>Recorrente</Text>
+              <Text style={styles.toggleDescription}>
+                Recriar automaticamente no próximo mês
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.toggle, isRecurring && styles.toggleActive]}
+              onPress={() => setIsRecurring(!isRecurring)}
+            >
+              <View style={[styles.toggleThumb, isRecurring && styles.toggleThumbActive]} />
+            </TouchableOpacity>
+          </View>
 
           <Button
             onPress={handleModalSubmit}
@@ -430,10 +534,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.danger + '40',
   },
+  budgetCardInactive: {
+    opacity: 0.6,
+  },
   budgetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: spacing.sm,
   },
   budgetActions: {
@@ -445,7 +552,7 @@ const styles = StyleSheet.create({
   },
   budgetCategory: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: spacing.sm,
     flex: 1,
   },
@@ -453,11 +560,28 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
+    marginTop: 4,
+  },
+  categoryInfo: {
+    flex: 1,
+  },
+  categoryNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexWrap: 'wrap',
+  },
+  badge: {
+    marginTop: 2,
   },
   budgetCategoryName: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
     color: colors.foreground,
+  },
+  subcategoryText: {
+    color: colors.secondary,
+    fontWeight: fontWeight.normal,
   },
   alertBadge: {
     flexDirection: 'row',
@@ -485,7 +609,7 @@ const styles = StyleSheet.create({
   budgetFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   budgetPercentage: {
     fontSize: fontSize.sm,
@@ -500,6 +624,16 @@ const styles = StyleSheet.create({
   budgetTotal: {
     fontSize: fontSize.sm,
     color: colors.secondary,
+  },
+  budgetBase: {
+    fontSize: fontSize.xs,
+    color: colors.secondary,
+    marginTop: 2,
+  },
+  inactiveText: {
+    fontSize: fontSize.xs,
+    color: colors.secondary,
+    fontWeight: fontWeight.medium,
   },
   overBudgetText: {
     fontSize: fontSize.sm,
@@ -578,5 +712,61 @@ const styles = StyleSheet.create({
   },
   createButton: {
     marginTop: spacing.md,
+  },
+  infoBox: {
+    backgroundColor: colors.primary + '10',
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.primary + '30',
+  },
+  infoText: {
+    fontSize: fontSize.sm,
+    color: colors.primary,
+    fontWeight: '500',
+  },
+  infoSubtext: {
+    fontSize: fontSize.xs,
+    color: colors.secondary,
+    marginTop: 4,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  toggleInfo: {
+    flex: 1,
+  },
+  toggleLabel: {
+    fontSize: fontSize.md,
+    color: colors.foreground,
+    fontWeight: '500',
+  },
+  toggleDescription: {
+    fontSize: fontSize.xs,
+    color: colors.secondary,
+    marginTop: 2,
+  },
+  toggle: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.muted,
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleActive: {
+    backgroundColor: colors.primary,
+  },
+  toggleThumb: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.foreground,
+  },
+  toggleThumbActive: {
+    alignSelf: 'flex-end',
   },
 })

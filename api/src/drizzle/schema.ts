@@ -121,9 +121,13 @@ export const budgets = pgTable("budgets", {
 		.notNull(),
 	subcategoryId: uuid("subcategory_id").references(() => subcategories.id),
 	amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+	baseAmount: numeric("base_amount", { precision: 12, scale: 2 }),
 	period: budgetPeriodEnum("period").notNull().default("monthly"),
 	month: numeric("month", { precision: 2 }).notNull(),
 	year: numeric("year", { precision: 4 }).notNull(),
+	isRecurring: boolean("is_recurring").notNull().default(false),
+	isActive: boolean("is_active").notNull().default(true),
+	recurringGroupId: uuid("recurring_group_id"),
 	createdAt: timestamp("created_at").defaultNow(),
 	updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -144,4 +148,17 @@ export const goals = pgTable("goals", {
 	categoryId: uuid("category_id").references(() => categories.id),
 	createdAt: timestamp("created_at").defaultNow(),
 	updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const goalContributions = pgTable("goal_contributions", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	goalId: uuid("goal_id")
+		.references(() => goals.id, { onDelete: "cascade" })
+		.notNull(),
+	transactionId: uuid("transaction_id")
+		.references(() => transactions.id, { onDelete: "cascade" })
+		.notNull(),
+	type: text("type").notNull().default("deposit"),
+	amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+	createdAt: timestamp("created_at").defaultNow(),
 });

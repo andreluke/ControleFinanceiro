@@ -1,6 +1,7 @@
-import { forwardRef, type ReactNode } from 'react'
-import { View, Text, TextInput, StyleSheet, type TextInputProps } from 'react-native'
+import { forwardRef, useState, type ReactNode } from 'react'
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, type TextInputProps } from 'react-native'
 import { colors, borderRadius, fontSize, spacing } from '../../theme/tokens'
+import { Icons } from '../../components/icons'
 
 interface InputProps extends TextInputProps {
   label?: string
@@ -19,10 +20,12 @@ export const Input = forwardRef<TextInput, InputProps>(
       leftElement,
       rightElement,
       style,
+      secureTextEntry,
       ...props
     },
     ref
   ) => {
+    const [isSecure, setIsSecure] = useState(secureTextEntry)
     const hasError = !!error
 
     return (
@@ -33,7 +36,7 @@ export const Input = forwardRef<TextInput, InputProps>(
             styles.inputContainer,
             hasError && styles.inputError,
             !!leftElement && styles.inputWithLeftElement,
-            !!rightElement && styles.inputWithRightElement,
+            (!!rightElement || secureTextEntry) && styles.inputWithRightElement,
           ]}
         >
           {leftElement && <View style={styles.leftElement}>{leftElement}</View>}
@@ -42,9 +45,24 @@ export const Input = forwardRef<TextInput, InputProps>(
             style={[styles.input, style]}
             placeholderTextColor={colors.secondary}
             selectionColor={colors.primary}
+            secureTextEntry={isSecure}
             {...props}
           />
-          {rightElement && <View style={styles.rightElement}>{rightElement}</View>}
+          <View style={styles.rightElement}>
+            {rightElement}
+            {secureTextEntry && (
+              <TouchableOpacity
+                onPress={() => setIsSecure(!isSecure)}
+                style={styles.toggleButton}
+              >
+                {isSecure ? (
+                  <Icons.EyeOff size={20} color={colors.secondary} />
+                ) : (
+                  <Icons.Eye size={20} color={colors.secondary} />
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
         {hasError && <Text style={styles.error}>{error}</Text>}
         {helperText && !hasError && (
@@ -94,7 +112,13 @@ const styles = StyleSheet.create({
     paddingLeft: spacing.md,
   },
   rightElement: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingRight: spacing.md,
+    gap: spacing.xs,
+  },
+  toggleButton: {
+    padding: spacing.xs,
   },
   error: {
     fontSize: fontSize.xs,

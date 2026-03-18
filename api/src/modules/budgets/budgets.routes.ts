@@ -56,6 +56,7 @@ export async function registerBudgetsRoutes(app: FastifyInstance) {
             amount: { type: "number" },
             month: { type: "integer", minimum: 1, maximum: 12 },
             year: { type: "integer" },
+            isRecurring: { type: "boolean", description: "Se o orçamento deve se repetir mensalmente" },
           },
         },
       },
@@ -78,14 +79,33 @@ export async function registerBudgetsRoutes(app: FastifyInstance) {
         },
         body: {
           type: "object",
-          required: ["amount"],
           properties: {
             amount: { type: "number" },
+            isActive: { type: "boolean", description: "Ativar/desativar orçamento recorrente" },
+            isRecurring: { type: "boolean" },
           },
         },
       },
     },
     controller.update,
+  );
+
+  app.patch(
+    "/budgets/:id/toggle",
+    {
+      schema: {
+        description: "Ativa ou desativa um orçamento recorrente",
+        tags: ["Budgets"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+        },
+      },
+    },
+    controller.toggleActive,
   );
 
   app.delete(

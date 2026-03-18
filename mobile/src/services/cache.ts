@@ -47,10 +47,18 @@ const loadCacheToMemory = async () => {
   return initPromise
 }
 
+const MAX_STORAGE_SIZE = 2000
+
 const saveToStorage = async (key: string, item: CacheItem<any>) => {
   try {
     const safeKey = sanitizeKey(key)
-    await SecureStore.setItemAsync(`cache_${safeKey}`, JSON.stringify(item))
+    const serialized = JSON.stringify(item)
+    
+    if (serialized.length > MAX_STORAGE_SIZE) {
+      return
+    }
+    
+    await SecureStore.setItemAsync(`cache_${safeKey}`, serialized)
     
     const keysStr = await SecureStore.getItemAsync('cache_keys')
     const keys: string[] = keysStr ? JSON.parse(keysStr) : []
@@ -159,6 +167,7 @@ export const CACHE_KEYS = {
   SUBCATEGORIES: 'subcategories',
   PAYMENT_METHODS: 'payment_methods',
   RECURRING: 'recurring',
+  GOALS: 'goals',
 } as const
 
 export type CacheKey = (typeof CACHE_KEYS)[keyof typeof CACHE_KEYS]

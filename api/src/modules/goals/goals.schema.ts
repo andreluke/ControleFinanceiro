@@ -24,6 +24,11 @@ export const contributeGoalSchema = z.object({
 	amount: z.number().positive("Valor deve ser positivo"),
 });
 
+export const withdrawGoalSchema = z.object({
+	amount: z.number().positive("Valor deve ser positivo"),
+});
+
 export type CreateGoalInput = z.infer<typeof createGoalSchema>;
 export type UpdateGoalInput = z.infer<typeof updateGoalSchema>;
 export type ContributeGoalInput = z.infer<typeof contributeGoalSchema>;
+export type WithdrawGoalInput = z.infer<typeof withdrawGoalSchema>;

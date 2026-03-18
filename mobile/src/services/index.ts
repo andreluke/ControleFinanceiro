@@ -19,6 +19,14 @@ export {
   type BudgetListParams, 
   type CreateBudgetRequest 
 } from './budgets'
+export { 
+  goalService, 
+  type Goal, 
+  type GoalContribution,
+  type CreateGoalRequest, 
+  type UpdateGoalRequest,
+  type ContributeGoalRequest
+} from './goals'
 export { categoryService, type Category } from './categories'
 export { subcategoryService, type Subcategory } from './subcategories'
 export { 
