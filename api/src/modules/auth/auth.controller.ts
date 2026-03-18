@@ -22,7 +22,35 @@ export class AuthController {
 		const [errCreate, user] = await catchError(this.authModel.createUser(body));
 		if (errCreate || !user) throw new AppError("Erro ao criar usuário", 500);
 
-		return reply.status(201).send({ user });
+		const expiresIn = "7d";
+
+		const [errToken, token] = await catchError(
+			reply.jwtSign(
+				{
+					sub: user.id,
+					email: user.email,
+				},
+				{ expiresIn },
+			),
+		);
+		if (errToken) throw new AppError("Erro ao gerar token", 500);
+
+		reply.setCookie("token", token, {
+			path: "/",
+			httpOnly: true,
+			sameSite: "lax",
+			secure: process.env.NODE_ENV === "production",
+			maxAge: 7 * 24 * 60 * 60,
+		});
+
+		return reply.status(201).send({
+			token,
+			user: {
+				id: user.id,
+				name: user.name,
+				email: user.email,
+			},
+		});
 	};
 
 	login = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -135,5 +163,29 @@ export class AuthController {
 		if (errUpdate) throw new AppError("Erro ao alterar senha", 500);
 
 		return reply.send({ message: "Senha alterada com sucesso" });
+	};
+
+	refreshToken = async (request: FastifyRequest, reply: FastifyReply) => {
+		await catchError(request.jwtVerify());
+
+		const { sub, email } = request.user as { sub: string; email: string };
+
+		const [errToken, token] = await catchError(
+			reply.jwtSign(
+				{ sub, email },
+				{ expiresIn: "7d" },
+			),
+		);
+		if (errToken) throw new AppError("Erro ao gerar token", 500);
+
+		reply.setCookie("token", token, {
+			path: "/",
+			httpOnly: true,
+			sameSite: "lax",
+			secure: process.env.NODE_ENV === "production",
+			maxAge: 7 * 24 * 60 * 60,
+		});
+
+		return reply.send({ token });
 	};
 }

@@ -2,6 +2,33 @@ import * as SecureStore from 'expo-secure-store'
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'
 
+let isRefreshing = false
+let refreshPromise: Promise<string | null> | null = null
+
+async function tryRefreshToken(): Promise<string | null> {
+  if (isRefreshing) {
+    return refreshPromise
+  }
+
+  isRefreshing = true
+  refreshPromise = (async () => {
+    try {
+      const { authService } = await import('./auth')
+      const newToken = await authService.refreshToken()
+      return newToken
+    } catch {
+      const { useAuthStore } = await import('../stores/auth')
+      useAuthStore.getState().logout()
+      return null
+    } finally {
+      isRefreshing = false
+      refreshPromise = null
+    }
+  })()
+
+  return refreshPromise
+}
+
 class ApiClient {
   private token: string | null = null
 
@@ -23,7 +50,8 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    retryOnAuth = true
   ): Promise<T> {
     const token = await this.getToken()
 
@@ -37,6 +65,24 @@ class ApiClient {
       ...options,
       headers,
     })
+
+    if (response.status === 401 && retryOnAuth && endpoint !== '/auth/refresh-token') {
+      const newToken = await tryRefreshToken()
+      if (newToken) {
+        headers['Authorization'] = `Bearer ${newToken}`
+        const retryResponse = await fetch(`${API_URL}${endpoint}`, {
+          ...options,
+          headers,
+        })
+
+        if (!retryResponse.ok) {
+          const error = await retryResponse.json().catch(() => ({ message: 'Erro desconhecido' }))
+          throw new Error(error.message || `Erro ${retryResponse.status}`)
+        }
+
+        return retryResponse.json()
+      }
+    }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Erro desconhecido' }))

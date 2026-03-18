@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { authService } from '../services'
+import { cacheService } from '../services/cache'
 
 interface User {
   id: string
@@ -29,6 +30,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const isAuth = await authService.isAuthenticated()
       if (isAuth) {
+        await authService.ensureValidToken()
         const user = await authService.me()
         set({ user, isAuthenticated: true, isLoading: false })
       } else {
@@ -41,16 +43,19 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   login: async (email: string, password: string) => {
     const response = await authService.login({ email, password })
+    await cacheService.clear()
     set({ user: response.user, isAuthenticated: true })
   },
 
   register: async (name: string, email: string, password: string) => {
     const response = await authService.register({ name, email, password })
+    await cacheService.clear()
     set({ user: response.user, isAuthenticated: true })
   },
 
   logout: async () => {
     await authService.logout()
+    await cacheService.clear()
     set({ user: null, isAuthenticated: false })
   },
 }))

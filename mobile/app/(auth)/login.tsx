@@ -43,7 +43,7 @@ export default function LoginScreen() {
   const onSubmit = async (data: LoginInput) => {
     try {
       setError("");
-      await authService.login(data);
+      await authService.login({ ...data, rememberMe: true });
       router.replace("/(tabs)");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao fazer login");

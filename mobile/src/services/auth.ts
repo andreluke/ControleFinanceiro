@@ -1,4 +1,5 @@
 import { api } from './api'
+import { isTokenExpiringSoon } from '../utils/jwt'
 
 export interface LoginRequest {
   email: string
@@ -14,6 +15,7 @@ export interface RegisterRequest {
 
 export interface AuthResponse {
   token: string
+  refreshToken: string
   user: {
     id: string
     name: string
@@ -21,14 +23,8 @@ export interface AuthResponse {
   }
 }
 
-export interface AuthMeResponse {
-  user: {
-    id: string 
-    name: string
-    email: string
-    createdAt: string
-  }
-}
+let lastRefreshAttempt = 0
+const REFRESH_COOLDOWN = 60 * 1000
 
 export const authService = {
   async login(data: LoginRequest): Promise<AuthResponse> {
@@ -51,13 +47,37 @@ export const authService = {
     }
   },
 
+  async refreshToken(): Promise<string> {
+    const now = Date.now()
+    if (now - lastRefreshAttempt < REFRESH_COOLDOWN) {
+      const token = await api.getToken()
+      if (token) return token
+    }
+
+    lastRefreshAttempt = now
+    const response = await api.post<{ token: string }>('/auth/refresh-token', {})
+    await api.setToken(response.token)
+    return response.token
+  },
+
+  async ensureValidToken(): Promise<string> {
+    const token = await api.getToken()
+    if (!token) throw new Error('No token available')
+
+    if (isTokenExpiringSoon(token, 5)) {
+      return this.refreshToken()
+    }
+
+    return token
+  },
+
   async me(): Promise<AuthResponse['user']> {
-    const response = await api.get<AuthMeResponse>('/auth/me')
+    const response = await api.get<{ user: AuthResponse['user'] }>('/auth/me')
     return response.user
   },
 
   async updateProfile(name: string): Promise<AuthResponse['user']> {
-    const response = await api.put<AuthMeResponse>('/auth/me', { name })
+    const response = await api.put<{ user: AuthResponse['user'] }>('/auth/me', { name })
     return response.user
   },
 

@@ -104,4 +104,16 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 		},
 		authController.changePassword,
 	);
+
+	app.post(
+		"/auth/refresh-token",
+		{
+			schema: {
+				description: "Renova o token JWT do usuário",
+				tags: ["Auth"],
+				security: [{ bearerAuth: [] }],
+			},
+		},
+		authController.refreshToken,
+	);
 }
