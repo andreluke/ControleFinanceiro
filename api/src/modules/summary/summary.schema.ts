@@ -9,6 +9,7 @@ export const summaryQuerySchema = z.object({
 		.regex(/^\d{4}-\d{2}$/, "Formato de mês inválido (esperado: YYYY-MM)")
 		.optional(),
 	period: summaryPeriodSchema.optional(),
+	type: z.enum(['income', 'expense']).optional(),
 });
 
 export type SummaryQueryInput = z.infer<typeof summaryQuerySchema>;

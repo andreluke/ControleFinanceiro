@@ -35,10 +35,10 @@ export class SummaryController {
 		reply: FastifyReply,
 	) => {
 		const { sub: userId } = request.user as { sub: string };
-		const { month, period } = summaryQuerySchema.parse(request.query);
+		const { month, period, type } = summaryQuerySchema.parse(request.query);
 
 		const [err, byCategory] = await catchError(
-			this.summaryModel.getByCategorySummary(userId, { month, period }),
+			this.summaryModel.getByCategorySummary(userId, { month, period, type }),
 		);
 		if (err) throw new AppError("Erro ao obter resumo por categoria", 500);
 

@@ -216,9 +216,7 @@ export class RecurringTransactionController {
 		);
 		if (errCreate) throw new AppError("Erro ao gerar transação", 500);
 
-		await this.recurringModel.updateRecurringTransaction(id, userId, {
-			lastGeneratedAt: now.toISOString() as unknown as undefined,
-		} as never);
+		await this.recurringModel.updateLastGeneratedAt(id, userId, now);
 
 		return reply.status(201).send(transaction);
 	};

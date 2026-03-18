@@ -216,4 +216,18 @@ export class RecurringTransactionModel {
 			.returning();
 		return deleted;
 	}
+
+	async updateLastGeneratedAt(id: string, userId: string, date: Date) {
+		const [updated] = await db
+			.update(recurringTransactions)
+			.set({ lastGeneratedAt: date, updatedAt: new Date() })
+			.where(
+				and(
+					eq(recurringTransactions.id, id),
+					eq(recurringTransactions.userId, userId),
+				),
+			)
+			.returning();
+		return updated;
+	}
 }

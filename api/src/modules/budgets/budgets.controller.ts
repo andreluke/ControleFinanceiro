@@ -100,13 +100,46 @@ export class BudgetsController {
 			throw new AppError("Não autorizado", 403);
 		}
 
-		const [err, updated] = await catchError(BudgetsModel.update(id, data));
+		const [err, updated] = await catchError(
+			BudgetsModel.update(id, userId, data),
+		);
 
 		if (err) {
 			throw new AppError("Erro ao atualizar orçamento", 500);
 		}
 
 		return reply.send({ budget: updated });
+	}
+
+	async toggleActive(req: FastifyRequest, reply: FastifyReply) {
+		const { id } = req.params as { id: string };
+
+		const existing = await BudgetsModel.findById(id);
+		if (!existing) {
+			throw new AppError("Orçamento não encontrado", 404);
+		}
+
+		const userId = (req.user as { sub: string }).sub;
+		if (existing.userId !== userId) {
+			throw new AppError("Não autorizado", 403);
+		}
+
+		if (!existing.isRecurring) {
+			throw new AppError(
+				"Só é possível desativar orçamentos recorrentes",
+				400,
+			);
+		}
+
+		const [err, toggled] = await catchError(
+			BudgetsModel.toggleActive(id, userId),
+		);
+
+		if (err) {
+			throw new AppError("Erro ao desativar orçamento", 500);
+		}
+
+		return reply.send({ budget: toggled });
 	}
 
 	async delete(req: FastifyRequest, reply: FastifyReply) {

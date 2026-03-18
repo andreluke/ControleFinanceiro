@@ -104,7 +104,7 @@ var require_main = __commonJS({
     var fs = require("fs");
     var path = require("path");
     var os = require("os");
-    var crypto = require("crypto");
+    var crypto2 = require("crypto");
     var packageJson = require_package();
     var version = packageJson.version;
     var TIPS = [
@@ -355,7 +355,7 @@ var require_main = __commonJS({
       const authTag = ciphertext.subarray(-16);
       ciphertext = ciphertext.subarray(12, -16);
       try {
-        const aesgcm = crypto.createDecipheriv("aes-256-gcm", key, nonce);
+        const aesgcm = crypto2.createDecipheriv("aes-256-gcm", key, nonce);
         aesgcm.setAuthTag(authTag);
         return `${aesgcm.update(ciphertext)}${aesgcm.final()}`;
       } catch (error) {
@@ -604,6 +604,8 @@ __export(schema_exports, {
   budgets: () => budgets,
   categories: () => categories,
   frequencyEnum: () => frequencyEnum,
+  goalContributions: () => goalContributions,
+  goals: () => goals,
   paymentMethods: () => paymentMethods,
   recurringTransactions: () => recurringTransactions,
   subcategories: () => subcategories,
@@ -700,11 +702,38 @@ var budgets = (0, import_pg_core.pgTable)("budgets", {
   categoryId: (0, import_pg_core.uuid)("category_id").references(() => categories.id).notNull(),
   subcategoryId: (0, import_pg_core.uuid)("subcategory_id").references(() => subcategories.id),
   amount: (0, import_pg_core.numeric)("amount", { precision: 12, scale: 2 }).notNull(),
+  baseAmount: (0, import_pg_core.numeric)("base_amount", { precision: 12, scale: 2 }),
   period: budgetPeriodEnum("period").notNull().default("monthly"),
   month: (0, import_pg_core.numeric)("month", { precision: 2 }).notNull(),
   year: (0, import_pg_core.numeric)("year", { precision: 4 }).notNull(),
+  isRecurring: (0, import_pg_core.boolean)("is_recurring").notNull().default(false),
+  isActive: (0, import_pg_core.boolean)("is_active").notNull().default(true),
+  recurringGroupId: (0, import_pg_core.uuid)("recurring_group_id"),
   createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
   updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+});
+var goals = (0, import_pg_core.pgTable)("goals", {
+  id: (0, import_pg_core.uuid)("id").primaryKey().defaultRandom(),
+  userId: (0, import_pg_core.uuid)("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  name: (0, import_pg_core.text)("name").notNull(),
+  description: (0, import_pg_core.text)("description"),
+  targetAmount: (0, import_pg_core.numeric)("target_amount", { precision: 12, scale: 2 }).notNull(),
+  currentAmount: (0, import_pg_core.numeric)("current_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  deadline: (0, import_pg_core.timestamp)("deadline"),
+  icon: (0, import_pg_core.text)("icon"),
+  color: (0, import_pg_core.text)("color").notNull().default("#3B82F6"),
+  isActive: (0, import_pg_core.boolean)("is_active").notNull().default(true),
+  categoryId: (0, import_pg_core.uuid)("category_id").references(() => categories.id),
+  createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
+  updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+});
+var goalContributions = (0, import_pg_core.pgTable)("goal_contributions", {
+  id: (0, import_pg_core.uuid)("id").primaryKey().defaultRandom(),
+  goalId: (0, import_pg_core.uuid)("goal_id").references(() => goals.id, { onDelete: "cascade" }).notNull(),
+  transactionId: (0, import_pg_core.uuid)("transaction_id").references(() => transactions.id, { onDelete: "cascade" }).notNull(),
+  type: (0, import_pg_core.text)("type").notNull().default("deposit"),
+  amount: (0, import_pg_core.numeric)("amount", { precision: 12, scale: 2 }).notNull(),
+  createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow()
 });
 
 // src/drizzle/client.ts
@@ -719,16 +748,70 @@ function toNumber(value) {
   return 0;
 }
 var BudgetsModel = class {
+  async recalculateParentBudget(userId, categoryId, month, year) {
+    const categoryBudgets = await db.select().from(budgets).where(
+      (0, import_drizzle_orm.and)(
+        (0, import_drizzle_orm.eq)(budgets.userId, userId),
+        (0, import_drizzle_orm.eq)(budgets.categoryId, categoryId),
+        (0, import_drizzle_orm.eq)(budgets.month, String(month)),
+        (0, import_drizzle_orm.eq)(budgets.year, String(year))
+      )
+    );
+    const parentBudget = categoryBudgets.find((b) => !b.subcategoryId);
+    const subcategoryBudgets = categoryBudgets.filter((b) => b.subcategoryId);
+    if (parentBudget) {
+      const subcategoriesTotal = subcategoryBudgets.reduce(
+        (sum2, b) => sum2 + toNumber(b.amount),
+        0
+      );
+      const baseAmount = toNumber(parentBudget.baseAmount);
+      const newTotal = baseAmount + subcategoriesTotal;
+      await db.update(budgets).set({ amount: String(newTotal), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm.eq)(budgets.id, parentBudget.id));
+    }
+  }
   async create(data) {
+    const isSubcategory = !!data.subcategoryId;
+    const baseAmount = isSubcategory ? 0 : data.baseAmount ?? data.amount;
+    let amount = isSubcategory ? data.amount : data.amount;
+    let existingSubcategoriesTotal = 0;
+    if (!isSubcategory) {
+      const existingBudgets = await db.select({ amount: budgets.amount, subcategoryId: budgets.subcategoryId }).from(budgets).where(
+        (0, import_drizzle_orm.and)(
+          (0, import_drizzle_orm.eq)(budgets.userId, data.userId),
+          (0, import_drizzle_orm.eq)(budgets.categoryId, data.categoryId),
+          (0, import_drizzle_orm.eq)(budgets.month, String(data.month)),
+          (0, import_drizzle_orm.eq)(budgets.year, String(data.year))
+        )
+      );
+      const existingSubs = existingBudgets.filter((b) => b.subcategoryId);
+      existingSubcategoriesTotal = existingSubs.reduce((sum2, b) => sum2 + toNumber(b.amount), 0);
+      amount = baseAmount + existingSubcategoriesTotal;
+    }
+    let recurringGroupId = null;
     const [created] = await db.insert(budgets).values({
       userId: data.userId,
       categoryId: data.categoryId,
       subcategoryId: data.subcategoryId || null,
-      amount: String(data.amount),
+      amount: String(amount),
+      baseAmount: isSubcategory ? null : String(baseAmount),
       month: String(data.month),
-      year: String(data.year)
+      year: String(data.year),
+      isRecurring: data.isRecurring ?? false,
+      isActive: true
     }).returning();
-    return created;
+    if (data.isRecurring) {
+      recurringGroupId = created.id;
+      await db.update(budgets).set({ recurringGroupId }).where((0, import_drizzle_orm.eq)(budgets.id, created.id));
+    }
+    if (isSubcategory) {
+      await this.recalculateParentBudget(
+        data.userId,
+        data.categoryId,
+        data.month,
+        data.year
+      );
+    }
+    return { ...created, recurringGroupId };
   }
   async findById(id) {
     const [budget] = await db.select().from(budgets).where((0, import_drizzle_orm.eq)(budgets.id, id));
@@ -746,12 +829,51 @@ var BudgetsModel = class {
   async findByUser(userId) {
     return db.select().from(budgets).where((0, import_drizzle_orm.eq)(budgets.userId, userId)).orderBy((0, import_drizzle_orm.desc)(budgets.year), (0, import_drizzle_orm.desc)(budgets.month));
   }
+  async findRecurringByUser(userId) {
+    return db.select().from(budgets).where(
+      (0, import_drizzle_orm.and)(
+        (0, import_drizzle_orm.eq)(budgets.userId, userId),
+        (0, import_drizzle_orm.eq)(budgets.isRecurring, true)
+      )
+    );
+  }
+  async ensureRecurringBudgetsExist(userId, month, year) {
+    const recurringBudgets = await this.findRecurringByUser(userId);
+    if (recurringBudgets.length === 0) return;
+    const existingBudgets = await this.findByUserAndPeriod(userId, month, year);
+    const existingGroupIds = existingBudgets.map((b) => b.recurringGroupId).filter((id) => id !== null);
+    const recurringGroupIds = recurringBudgets.map((b) => b.recurringGroupId).filter((id) => id !== null);
+    const missingGroupIds = recurringGroupIds.filter(
+      (id) => !existingGroupIds.includes(id)
+    );
+    for (const groupId of missingGroupIds) {
+      const templateBudget = recurringBudgets.find(
+        (b) => b.recurringGroupId === groupId
+      );
+      if (!templateBudget) continue;
+      const [isActive] = await db.select({ isActive: budgets.isActive }).from(budgets).where((0, import_drizzle_orm.eq)(budgets.id, groupId)).limit(1);
+      await db.insert(budgets).values({
+        userId,
+        categoryId: templateBudget.categoryId,
+        subcategoryId: templateBudget.subcategoryId,
+        amount: templateBudget.amount,
+        baseAmount: templateBudget.baseAmount,
+        month: String(month),
+        year: String(year),
+        isRecurring: true,
+        isActive: isActive?.isActive ?? true,
+        recurringGroupId: groupId
+      });
+    }
+  }
   async getWithCategory(userId, month, year) {
+    await this.ensureRecurringBudgetsExist(userId, month, year);
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0, 23, 59, 59);
     const userBudgets = await db.select({
       id: budgets.id,
       amount: budgets.amount,
+      baseAmount: budgets.baseAmount,
       month: budgets.month,
       year: budgets.year,
       categoryId: budgets.categoryId,
@@ -760,6 +882,9 @@ var BudgetsModel = class {
       categoryColor: categories.color,
       subcategoryName: subcategories.name,
       subcategoryColor: subcategories.color,
+      isRecurring: budgets.isRecurring,
+      isActive: budgets.isActive,
+      recurringGroupId: budgets.recurringGroupId,
       createdAt: budgets.createdAt
     }).from(budgets).leftJoin(categories, (0, import_drizzle_orm.eq)(budgets.categoryId, categories.id)).leftJoin(subcategories, (0, import_drizzle_orm.eq)(budgets.subcategoryId, subcategories.id)).where(
       (0, import_drizzle_orm.and)(
@@ -768,9 +893,16 @@ var BudgetsModel = class {
         (0, import_drizzle_orm.eq)(budgets.year, String(year))
       )
     );
+    const subcategoryBudgets = userBudgets.filter((b) => b.subcategoryId);
+    const subcategoriesTotalByCategory = /* @__PURE__ */ new Map();
+    for (const sub of subcategoryBudgets) {
+      const current = subcategoriesTotalByCategory.get(sub.categoryId) || 0;
+      subcategoriesTotalByCategory.set(sub.categoryId, current + toNumber(sub.amount));
+    }
     const budgetsWithSpent = await Promise.all(
       userBudgets.map(async (budget) => {
         const amountNum = toNumber(budget.amount);
+        const baseAmountNum = toNumber(budget.baseAmount);
         const conditions = [
           (0, import_drizzle_orm.eq)(transactions.userId, userId),
           (0, import_drizzle_orm.eq)(transactions.categoryId, budget.categoryId),
@@ -784,9 +916,11 @@ var BudgetsModel = class {
         const [result] = await db.select({ total: (0, import_drizzle_orm.sum)(transactions.amount) }).from(transactions).where((0, import_drizzle_orm.and)(...conditions));
         const spent = toNumber(result?.total);
         const percentage = amountNum > 0 ? spent / amountNum * 100 : 0;
+        const subcategoriesTotal = !budget.subcategoryId ? subcategoriesTotalByCategory.get(budget.categoryId) || 0 : void 0;
         return {
           id: budget.id,
           amount: amountNum,
+          baseAmount: budget.subcategoryId ? void 0 : baseAmountNum,
           month: toNumber(budget.month),
           year: toNumber(budget.year),
           categoryId: budget.categoryId,
@@ -799,7 +933,11 @@ var BudgetsModel = class {
           percentage,
           remaining: amountNum - spent,
           isOverBudget: spent > amountNum,
-          createdAt: budget.createdAt || /* @__PURE__ */ new Date()
+          isRecurring: budget.isRecurring,
+          isActive: budget.isActive,
+          recurringGroupId: budget.recurringGroupId,
+          createdAt: budget.createdAt || /* @__PURE__ */ new Date(),
+          subcategoriesTotal
         };
       })
     );
@@ -824,19 +962,111 @@ var BudgetsModel = class {
       budgets: budgetsWithCategory
     };
   }
-  async update(id, data) {
-    const updateData = {
-      updatedAt: /* @__PURE__ */ new Date()
-    };
-    if (data.amount !== void 0) {
-      updateData.amount = String(data.amount);
+  async update(id, userId, data) {
+    const budget = await this.findById(id);
+    if (!budget || budget.userId !== userId) return void 0;
+    const updateData = { updatedAt: /* @__PURE__ */ new Date() };
+    if (data.baseAmount !== void 0) {
+      updateData.baseAmount = String(data.baseAmount);
+      const subcategoriesTotal = await this.getSubcategoriesTotal(
+        userId,
+        budget.categoryId,
+        toNumber(budget.month),
+        toNumber(budget.year),
+        id
+      );
+      updateData.amount = String(data.baseAmount + subcategoriesTotal);
+    }
+    if (data.amount !== void 0 && data.baseAmount === void 0) {
+      if (budget.subcategoryId) {
+        updateData.amount = String(data.amount);
+      } else {
+        updateData.baseAmount = String(data.amount);
+        updateData.amount = String(data.amount);
+      }
+    }
+    if (data.isActive !== void 0) {
+      updateData.isActive = data.isActive;
+    }
+    if (data.isRecurring !== void 0) {
+      if (data.isRecurring && !budget.isRecurring) {
+        updateData.isRecurring = true;
+        updateData.isActive = true;
+        const newGroupId = crypto.randomUUID();
+        updateData.recurringGroupId = newGroupId;
+        const [updated2] = await db.update(budgets).set(updateData).where((0, import_drizzle_orm.eq)(budgets.id, id)).returning();
+        if (updated2) {
+          await db.update(budgets).set({ recurringGroupId: newGroupId }).where((0, import_drizzle_orm.eq)(budgets.id, id));
+        }
+        if (budget.subcategoryId) {
+          await this.recalculateParentBudget(
+            userId,
+            budget.categoryId,
+            toNumber(budget.month),
+            toNumber(budget.year)
+          );
+        }
+        return { ...updated2, recurringGroupId: newGroupId };
+      } else {
+        updateData.isRecurring = data.isRecurring;
+        if (!data.isRecurring) {
+          updateData.recurringGroupId = null;
+        }
+      }
     }
     const [updated] = await db.update(budgets).set(updateData).where((0, import_drizzle_orm.eq)(budgets.id, id)).returning();
+    if (data.isActive !== void 0 && budget.recurringGroupId && data.isActive === false) {
+      await db.update(budgets).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(
+        (0, import_drizzle_orm.and)(
+          (0, import_drizzle_orm.eq)(budgets.recurringGroupId, budget.recurringGroupId),
+          (0, import_drizzle_orm.or)(
+            (0, import_drizzle_orm.eq)(budgets.isRecurring, true),
+            import_drizzle_orm.sql`${budgets.id} != ${budget.id}`
+          )
+        )
+      );
+    }
+    if (budget.subcategoryId && data.amount !== void 0) {
+      await this.recalculateParentBudget(
+        userId,
+        budget.categoryId,
+        toNumber(budget.month),
+        toNumber(budget.year)
+      );
+    }
     return updated;
   }
+  async getSubcategoriesTotal(userId, categoryId, month, year, excludeBudgetId) {
+    const categoryBudgets = await db.select({ amount: budgets.amount, id: budgets.id }).from(budgets).where(
+      (0, import_drizzle_orm.and)(
+        (0, import_drizzle_orm.eq)(budgets.userId, userId),
+        (0, import_drizzle_orm.eq)(budgets.categoryId, categoryId),
+        (0, import_drizzle_orm.eq)(budgets.month, String(month)),
+        (0, import_drizzle_orm.eq)(budgets.year, String(year)),
+        import_drizzle_orm.sql`${budgets.subcategoryId} IS NOT NULL`
+      )
+    );
+    return categoryBudgets.filter((b) => b.id !== excludeBudgetId).reduce((sum2, b) => sum2 + toNumber(b.amount), 0);
+  }
+  async toggleActive(id, userId) {
+    const budget = await this.findById(id);
+    if (!budget || budget.userId !== userId) return void 0;
+    const newIsActive = !budget.isActive;
+    await db.update(budgets).set({ isActive: newIsActive, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm.eq)(budgets.id, id));
+    return { ...budget, isActive: newIsActive };
+  }
   async delete(id) {
+    const budget = await this.findById(id);
     const result = await db.delete(budgets).where((0, import_drizzle_orm.eq)(budgets.id, id));
     const rowCount = result.rowCount;
+    if (rowCount !== void 0 && rowCount > 0 && budget?.subcategoryId) {
+      await this.recalculateParentBudget(
+        budget.userId,
+        budget.categoryId,
+        toNumber(budget.month),
+        toNumber(budget.year)
+      );
+    }
     return rowCount !== void 0 && rowCount > 0;
   }
 };
@@ -849,10 +1079,16 @@ var createBudgetSchema = import_zod3.z.object({
   subcategoryId: import_zod3.z.string().uuid("ID da subcategoria inv\xE1lido").optional(),
   amount: import_zod3.z.number().positive("Valor deve ser positivo"),
   month: import_zod3.z.number().int().min(1).max(12, "M\xEAs inv\xE1lido"),
-  year: import_zod3.z.number().int().min(2020).max(2100, "Ano inv\xE1lido")
+  year: import_zod3.z.number().int().min(2020).max(2100, "Ano inv\xE1lido"),
+  isRecurring: import_zod3.z.boolean().optional().default(false)
 });
 var updateBudgetSchema = import_zod3.z.object({
-  amount: import_zod3.z.number().positive("Valor deve ser positivo")
+  amount: import_zod3.z.number().positive("Valor deve ser positivo").optional(),
+  isActive: import_zod3.z.boolean().optional(),
+  isRecurring: import_zod3.z.boolean().optional()
+});
+var toggleBudgetActiveSchema = import_zod3.z.object({
+  isActive: import_zod3.z.boolean()
 });
 var budgetQuerySchema = import_zod3.z.object({
   month: import_zod3.z.coerce.number().int().min(1).max(12).optional(),
@@ -935,11 +1171,37 @@ var BudgetsController = class {
     if (existing.userId !== userId) {
       throw new AppError("N\xE3o autorizado", 403);
     }
-    const [err, updated] = await catchError(budgets_model_default.update(id, data));
+    const [err, updated] = await catchError(
+      budgets_model_default.update(id, userId, data)
+    );
     if (err) {
       throw new AppError("Erro ao atualizar or\xE7amento", 500);
     }
     return reply.send({ budget: updated });
+  }
+  async toggleActive(req, reply) {
+    const { id } = req.params;
+    const existing = await budgets_model_default.findById(id);
+    if (!existing) {
+      throw new AppError("Or\xE7amento n\xE3o encontrado", 404);
+    }
+    const userId = req.user.sub;
+    if (existing.userId !== userId) {
+      throw new AppError("N\xE3o autorizado", 403);
+    }
+    if (!existing.isRecurring) {
+      throw new AppError(
+        "S\xF3 \xE9 poss\xEDvel desativar or\xE7amentos recorrentes",
+        400
+      );
+    }
+    const [err, toggled] = await catchError(
+      budgets_model_default.toggleActive(id, userId)
+    );
+    if (err) {
+      throw new AppError("Erro ao desativar or\xE7amento", 500);
+    }
+    return reply.send({ budget: toggled });
   }
   async delete(req, reply) {
     const { id } = req.params;
@@ -1029,7 +1291,8 @@ async function registerBudgetsRoutes(app) {
             subcategoryId: { type: "string", format: "uuid" },
             amount: { type: "number" },
             month: { type: "integer", minimum: 1, maximum: 12 },
-            year: { type: "integer" }
+            year: { type: "integer" },
+            isRecurring: { type: "boolean", description: "Se o or\xE7amento deve se repetir mensalmente" }
           }
         }
       }
@@ -1051,14 +1314,32 @@ async function registerBudgetsRoutes(app) {
         },
         body: {
           type: "object",
-          required: ["amount"],
           properties: {
-            amount: { type: "number" }
+            amount: { type: "number" },
+            isActive: { type: "boolean", description: "Ativar/desativar or\xE7amento recorrente" },
+            isRecurring: { type: "boolean" }
           }
         }
       }
     },
     controller.update
+  );
+  app.patch(
+    "/budgets/:id/toggle",
+    {
+      schema: {
+        description: "Ativa ou desativa um or\xE7amento recorrente",
+        tags: ["Budgets"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.toggleActive
   );
   app.delete(
     "/budgets/:id",
@@ -1079,8 +1360,820 @@ async function registerBudgetsRoutes(app) {
   );
 }
 
-// src/modules/subcategories/subcategories.model.ts
+// src/modules/goals/goals.model.ts
+var import_drizzle_orm5 = require("drizzle-orm");
+
+// src/modules/categories/categories.model.ts
 var import_drizzle_orm2 = require("drizzle-orm");
+var CategoryModel = class {
+  async findAll(userId) {
+    return db.select({
+      id: categories.id,
+      name: categories.name,
+      color: categories.color,
+      icon: categories.icon
+    }).from(categories).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(categories.userId, userId), (0, import_drizzle_orm2.isNull)(categories.deletedAt))).orderBy((0, import_drizzle_orm2.asc)(categories.name));
+  }
+  async findById(id, userId) {
+    const [category] = await db.select().from(categories).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(categories.id, id), (0, import_drizzle_orm2.eq)(categories.userId, userId))).limit(1);
+    return category;
+  }
+  async findByName(name, userId) {
+    const [category] = await db.select().from(categories).where(
+      (0, import_drizzle_orm2.and)(
+        (0, import_drizzle_orm2.eq)(categories.name, name),
+        (0, import_drizzle_orm2.eq)(categories.userId, userId),
+        (0, import_drizzle_orm2.isNull)(categories.deletedAt)
+      )
+    ).limit(1);
+    return category;
+  }
+  async createCategory(userId, data) {
+    const [category] = await db.insert(categories).values({
+      userId,
+      name: data.name,
+      color: data.color || "#3B82F6",
+      icon: data.icon
+    }).returning();
+    return category;
+  }
+  async updateCategory(id, userId, data) {
+    const [updated] = await db.update(categories).set(data).where(
+      (0, import_drizzle_orm2.and)(
+        (0, import_drizzle_orm2.eq)(categories.id, id),
+        (0, import_drizzle_orm2.eq)(categories.userId, userId),
+        (0, import_drizzle_orm2.isNull)(categories.deletedAt)
+      )
+    ).returning();
+    return updated;
+  }
+  async softDelete(id, userId) {
+    const [deleted] = await db.update(categories).set({ deletedAt: /* @__PURE__ */ new Date() }).where(
+      (0, import_drizzle_orm2.and)(
+        (0, import_drizzle_orm2.eq)(categories.id, id),
+        (0, import_drizzle_orm2.eq)(categories.userId, userId),
+        (0, import_drizzle_orm2.isNull)(categories.deletedAt)
+      )
+    ).returning();
+    return deleted;
+  }
+  async restoreCategory(id, userId) {
+    const [restored] = await db.update(categories).set({ deletedAt: null }).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(categories.id, id), (0, import_drizzle_orm2.eq)(categories.userId, userId))).returning();
+    return restored;
+  }
+};
+
+// src/modules/payment-methods/payment-methods.model.ts
+var import_drizzle_orm3 = require("drizzle-orm");
+var PaymentMethodModel = class {
+  async findAll(userId) {
+    return db.select({
+      id: paymentMethods.id,
+      name: paymentMethods.name
+    }).from(paymentMethods).where(
+      (0, import_drizzle_orm3.and)(
+        (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId),
+        (0, import_drizzle_orm3.isNull)(paymentMethods.deletedAt)
+      )
+    ).orderBy((0, import_drizzle_orm3.asc)(paymentMethods.name));
+  }
+  async findById(id, userId) {
+    const [method] = await db.select().from(paymentMethods).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(paymentMethods.id, id), (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId))).limit(1);
+    return method;
+  }
+  async createMethod(userId, data) {
+    const [method] = await db.insert(paymentMethods).values({
+      userId,
+      name: data.name
+    }).returning();
+    return method;
+  }
+  async updateMethod(id, userId, data) {
+    const [updated] = await db.update(paymentMethods).set(data).where(
+      (0, import_drizzle_orm3.and)(
+        (0, import_drizzle_orm3.eq)(paymentMethods.id, id),
+        (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId),
+        (0, import_drizzle_orm3.isNull)(paymentMethods.deletedAt)
+      )
+    ).returning();
+    return updated;
+  }
+  async softDelete(id, userId) {
+    const [deleted] = await db.update(paymentMethods).set({ deletedAt: /* @__PURE__ */ new Date() }).where(
+      (0, import_drizzle_orm3.and)(
+        (0, import_drizzle_orm3.eq)(paymentMethods.id, id),
+        (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId),
+        (0, import_drizzle_orm3.isNull)(paymentMethods.deletedAt)
+      )
+    ).returning();
+    return deleted;
+  }
+  async restoreMethod(id, userId) {
+    const [restored] = await db.update(paymentMethods).set({ deletedAt: null }).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(paymentMethods.id, id), (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId))).returning();
+    return restored;
+  }
+  async findByName(name, userId) {
+    const [method] = await db.select().from(paymentMethods).where(
+      (0, import_drizzle_orm3.and)(
+        (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId),
+        (0, import_drizzle_orm3.eq)(paymentMethods.name, name),
+        (0, import_drizzle_orm3.isNull)(paymentMethods.deletedAt)
+      )
+    ).limit(1);
+    return method;
+  }
+};
+
+// src/modules/transactions/transactions.model.ts
+var import_drizzle_orm4 = require("drizzle-orm");
+var TransactionModel = class {
+  async findAll(userId, filters) {
+    const startDate = filters.startDate ? new Date(filters.startDate) : void 0;
+    const endDate = filters.endDate ? new Date(filters.endDate) : void 0;
+    const query = db.select({
+      id: transactions.id,
+      description: transactions.description,
+      subDescription: transactions.subDescription,
+      amount: transactions.amount,
+      type: transactions.type,
+      date: transactions.date,
+      categoryId: transactions.categoryId,
+      subcategoryId: transactions.subcategoryId,
+      category: {
+        id: categories.id,
+        name: categories.name,
+        color: categories.color,
+        icon: categories.icon
+      },
+      subcategory: {
+        id: subcategories.id,
+        name: subcategories.name,
+        color: subcategories.color
+      },
+      paymentMethodId: transactions.paymentMethodId,
+      paymentMethod: {
+        id: paymentMethods.id,
+        name: paymentMethods.name
+      },
+      createdAt: transactions.createdAt
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm4.eq)(transactions.categoryId, categories.id)).leftJoin(subcategories, (0, import_drizzle_orm4.eq)(transactions.subcategoryId, subcategories.id)).leftJoin(
+      paymentMethods,
+      (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, paymentMethods.id)
+    ).where(
+      (0, import_drizzle_orm4.and)(
+        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm4.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm4.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        filters.paymentMethodId ? (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
+        filters.month ? import_drizzle_orm4.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
+        startDate ? (0, import_drizzle_orm4.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm4.lte)(transactions.date, endDate) : void 0
+      )
+    ).orderBy((0, import_drizzle_orm4.desc)(transactions.date), (0, import_drizzle_orm4.desc)(transactions.createdAt)).limit(filters.limit).offset((filters.page - 1) * filters.limit);
+    const countQuery = db.select({ count: (0, import_drizzle_orm4.count)() }).from(transactions).where(
+      (0, import_drizzle_orm4.and)(
+        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm4.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm4.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        filters.paymentMethodId ? (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
+        filters.month ? import_drizzle_orm4.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
+        startDate ? (0, import_drizzle_orm4.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm4.lte)(transactions.date, endDate) : void 0
+      )
+    );
+    const [data, [{ count: totalSize }]] = await Promise.all([
+      query,
+      countQuery
+    ]);
+    return {
+      data,
+      total: Number(totalSize)
+    };
+  }
+  async findById(id, userId) {
+    const [transaction] = await db.select({
+      id: transactions.id,
+      description: transactions.description,
+      subDescription: transactions.subDescription,
+      amount: transactions.amount,
+      type: transactions.type,
+      date: transactions.date,
+      categoryId: transactions.categoryId,
+      category: {
+        id: categories.id,
+        name: categories.name,
+        color: categories.color,
+        icon: categories.icon
+      },
+      paymentMethodId: transactions.paymentMethodId,
+      paymentMethod: {
+        id: paymentMethods.id,
+        name: paymentMethods.name
+      },
+      createdAt: transactions.createdAt
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm4.eq)(transactions.categoryId, categories.id)).leftJoin(
+      paymentMethods,
+      (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, paymentMethods.id)
+    ).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).limit(1);
+    return transaction;
+  }
+  async createTransaction(userId, data) {
+    const [transaction] = await db.insert(transactions).values({
+      userId,
+      description: data.description,
+      subDescription: data.subDescription,
+      amount: data.amount.toString(),
+      type: data.type,
+      date: new Date(data.date),
+      categoryId: data.categoryId,
+      subcategoryId: data.subcategoryId,
+      paymentMethodId: data.paymentMethodId
+    }).returning();
+    return transaction;
+  }
+  async updateTransaction(id, userId, data) {
+    const updateData = {};
+    if (data.description !== void 0) updateData.description = data.description;
+    if (data.subDescription !== void 0) updateData.subDescription = data.subDescription;
+    if (data.amount !== void 0) updateData.amount = data.amount.toString();
+    if (data.type !== void 0) updateData.type = data.type;
+    if (data.date !== void 0) updateData.date = new Date(data.date);
+    if (data.categoryId !== void 0) updateData.categoryId = data.categoryId;
+    if (data.subcategoryId !== void 0) updateData.subcategoryId = data.subcategoryId;
+    if (data.paymentMethodId !== void 0) updateData.paymentMethodId = data.paymentMethodId;
+    const [updated] = await db.update(transactions).set(updateData).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).returning();
+    return updated;
+  }
+  async deleteTransaction(id, userId) {
+    const [deleted] = await db.delete(transactions).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).returning();
+    return deleted;
+  }
+};
+var transactionModel = new TransactionModel();
+
+// src/modules/goals/goals.model.ts
+var GoalsModel = class {
+  constructor(categoryModel = new CategoryModel(), paymentMethodModel = new PaymentMethodModel(), transactionModel2 = new TransactionModel()) {
+    this.categoryModel = categoryModel;
+    this.paymentMethodModel = paymentMethodModel;
+    this.transactionModel = transactionModel2;
+  }
+  async findAll(userId) {
+    const result = await db.select({
+      id: goals.id,
+      name: goals.name,
+      description: goals.description,
+      targetAmount: goals.targetAmount,
+      currentAmount: goals.currentAmount,
+      deadline: goals.deadline,
+      icon: goals.icon,
+      color: goals.color,
+      isActive: goals.isActive,
+      createdAt: goals.createdAt,
+      updatedAt: goals.updatedAt
+    }).from(goals).where((0, import_drizzle_orm5.eq)(goals.userId, userId)).orderBy(goals.createdAt);
+    return result;
+  }
+  async findById(id) {
+    const [result] = await db.select({
+      id: goals.id,
+      userId: goals.userId,
+      name: goals.name,
+      description: goals.description,
+      targetAmount: goals.targetAmount,
+      currentAmount: goals.currentAmount,
+      deadline: goals.deadline,
+      categoryId: goals.categoryId,
+      icon: goals.icon,
+      color: goals.color,
+      isActive: goals.isActive,
+      createdAt: goals.createdAt,
+      updatedAt: goals.updatedAt
+    }).from(goals).where((0, import_drizzle_orm5.eq)(goals.id, id)).limit(1);
+    return result;
+  }
+  async create(userId, data) {
+    const [result] = await db.insert(goals).values({
+      userId,
+      name: data.name,
+      description: data.description,
+      targetAmount: data.targetAmount.toString(),
+      currentAmount: "0",
+      deadline: data.deadline ? new Date(data.deadline) : void 0,
+      icon: data.icon,
+      color: data.color || "#3B82F6",
+      isActive: data.isActive ?? true
+    }).returning();
+    return result;
+  }
+  async update(id, data) {
+    const updateData = {};
+    if (data.name !== void 0) updateData.name = data.name;
+    if (data.description !== void 0)
+      updateData.description = data.description;
+    if (data.targetAmount !== void 0)
+      updateData.targetAmount = data.targetAmount.toString();
+    if (data.deadline !== void 0)
+      updateData.deadline = data.deadline ? new Date(data.deadline) : void 0;
+    if (data.icon !== void 0) updateData.icon = data.icon;
+    if (data.color !== void 0) updateData.color = data.color;
+    if (data.isActive !== void 0) updateData.isActive = data.isActive;
+    const [result] = await db.update(goals).set(updateData).where((0, import_drizzle_orm5.eq)(goals.id, id)).returning();
+    return result;
+  }
+  async contribute(userId, id, amount) {
+    const goal = await this.findById(id);
+    if (!goal || goal.userId !== userId) return null;
+    let categoryId = goal.categoryId;
+    if (!categoryId) {
+      let category = await this.categoryModel.findByName("Meta", userId);
+      if (!category) {
+        category = await this.categoryModel.createCategory(userId, {
+          name: "Meta",
+          color: "#6B7280"
+        });
+      }
+      categoryId = category.id;
+    }
+    let paymentMethod = await this.paymentMethodModel.findByName("Interno", userId);
+    if (!paymentMethod) {
+      paymentMethod = await this.paymentMethodModel.createMethod(userId, {
+        name: "Interno"
+      });
+    }
+    const transaction = await this.transactionModel.createTransaction(userId, {
+      description: `Meta: ${goal.name}`,
+      amount,
+      type: "expense",
+      date: (/* @__PURE__ */ new Date()).toISOString(),
+      categoryId,
+      paymentMethodId: paymentMethod.id
+    });
+    const newAmount = Number(goal.currentAmount) + amount;
+    await db.update(goals).set({
+      currentAmount: newAmount.toString(),
+      categoryId
+    }).where((0, import_drizzle_orm5.eq)(goals.id, id));
+    const [contribution] = await db.insert(goalContributions).values({
+      goalId: id,
+      transactionId: transaction.id,
+      type: "deposit",
+      amount: amount.toString()
+    }).returning();
+    return { contribution, goal: { ...goal, currentAmount: newAmount.toString() } };
+  }
+  async withdraw(userId, id, amount) {
+    const goal = await this.findById(id);
+    if (!goal || goal.userId !== userId) return null;
+    const currentAmount = Number(goal.currentAmount);
+    if (amount > currentAmount) {
+      throw new Error("Valor maior que o saldo dispon\xEDvel");
+    }
+    let categoryId = goal.categoryId;
+    if (!categoryId) {
+      let category = await this.categoryModel.findByName("Meta", userId);
+      if (!category) {
+        category = await this.categoryModel.createCategory(userId, {
+          name: "Meta",
+          color: "#6B7280"
+        });
+      }
+      categoryId = category.id;
+    }
+    let paymentMethod = await this.paymentMethodModel.findByName("Interno", userId);
+    if (!paymentMethod) {
+      paymentMethod = await this.paymentMethodModel.createMethod(userId, {
+        name: "Interno"
+      });
+    }
+    const transaction = await this.transactionModel.createTransaction(userId, {
+      description: `Saque: ${goal.name}`,
+      amount,
+      type: "income",
+      date: (/* @__PURE__ */ new Date()).toISOString(),
+      categoryId,
+      paymentMethodId: paymentMethod.id
+    });
+    const newAmount = currentAmount - amount;
+    await db.update(goals).set({
+      currentAmount: newAmount.toString()
+    }).where((0, import_drizzle_orm5.eq)(goals.id, id));
+    const [withdrawal] = await db.insert(goalContributions).values({
+      goalId: id,
+      transactionId: transaction.id,
+      type: "withdrawal",
+      amount: amount.toString()
+    }).returning();
+    return { withdrawal, goal: { ...goal, currentAmount: newAmount.toString() } };
+  }
+  async findContributionsByGoalId(goalId) {
+    const result = await db.select({
+      id: goalContributions.id,
+      goalId: goalContributions.goalId,
+      transactionId: goalContributions.transactionId,
+      type: goalContributions.type,
+      amount: goalContributions.amount,
+      createdAt: goalContributions.createdAt
+    }).from(goalContributions).where((0, import_drizzle_orm5.eq)(goalContributions.goalId, goalId)).orderBy(goalContributions.createdAt);
+    return result;
+  }
+  async removeContribution(userId, contributionId) {
+    const [contribution] = await db.select().from(goalContributions).where((0, import_drizzle_orm5.eq)(goalContributions.id, contributionId)).limit(1);
+    if (!contribution) return null;
+    const goal = await this.findById(contribution.goalId);
+    if (!goal || goal.userId !== userId) return null;
+    await this.transactionModel.deleteTransaction(contribution.transactionId, userId);
+    const newAmount = Number(goal.currentAmount) - Number(contribution.amount);
+    await db.update(goals).set({ currentAmount: newAmount.toString() }).where((0, import_drizzle_orm5.eq)(goals.id, goal.id));
+    await db.delete(goalContributions).where((0, import_drizzle_orm5.eq)(goalContributions.id, contributionId));
+    return { removed: contribution, goal: { ...goal, currentAmount: newAmount.toString() } };
+  }
+  async delete(id) {
+    const [result] = await db.delete(goals).where((0, import_drizzle_orm5.eq)(goals.id, id)).returning();
+    return result;
+  }
+};
+var goalsModel = new GoalsModel();
+
+// src/modules/goals/goals.schema.ts
+var import_zod4 = require("zod");
+var createGoalSchema = import_zod4.z.object({
+  name: import_zod4.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(255),
+  description: import_zod4.z.string().max(500).optional(),
+  targetAmount: import_zod4.z.number().positive("Valor alvo deve ser positivo"),
+  deadline: import_zod4.z.string().datetime().optional(),
+  icon: import_zod4.z.string().max(50).optional(),
+  color: import_zod4.z.string().max(20).optional(),
+  isActive: import_zod4.z.boolean().optional()
+});
+var updateGoalSchema = import_zod4.z.object({
+  name: import_zod4.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(255),
+  description: import_zod4.z.string().max(500).optional(),
+  targetAmount: import_zod4.z.number().positive("Valor alvo deve ser positivo"),
+  deadline: import_zod4.z.string().datetime().optional(),
+  icon: import_zod4.z.string().max(50).optional(),
+  color: import_zod4.z.string().max(20).optional(),
+  isActive: import_zod4.z.boolean().optional()
+});
+var contributeGoalSchema = import_zod4.z.object({
+  amount: import_zod4.z.number().positive("Valor deve ser positivo")
+});
+var withdrawGoalSchema = import_zod4.z.object({
+  amount: import_zod4.z.number().positive("Valor deve ser positivo")
+});
+
+// src/modules/goals/goals.controller.ts
+var GoalsController = class {
+  goalsModel = new GoalsModel();
+  list = async (req, reply) => {
+    const userId = req.user.sub;
+    const [err, goals2] = await catchError(this.goalsModel.findAll(userId));
+    if (err) {
+      throw new AppError("Erro ao listar metas", 500);
+    }
+    return reply.send({ goals: goals2 });
+  };
+  create = async (req, reply) => {
+    const userId = req.user.sub;
+    const data = createGoalSchema.parse(req.body);
+    const [err, goal] = await catchError(this.goalsModel.create(userId, data));
+    if (err) {
+      throw new AppError("Erro ao criar meta", 500);
+    }
+    return reply.status(201).send({ goal });
+  };
+  get = async (req, reply) => {
+    const { id } = req.params;
+    const [err, goal] = await catchError(this.goalsModel.findById(id));
+    if (err) {
+      throw new AppError("Erro ao buscar meta", 500);
+    }
+    if (!goal) {
+      throw new AppError("Meta n\xE3o encontrada", 404);
+    }
+    return reply.send({ goal });
+  };
+  update = async (req, reply) => {
+    const userId = req.user.sub;
+    const { id } = req.params;
+    const data = updateGoalSchema.parse(req.body);
+    const [error, existing] = await catchError(this.goalsModel.findById(id));
+    if (error) {
+      throw new AppError("Erro ao buscar meta", 500);
+    }
+    if (!existing) {
+      throw new AppError("Meta n\xE3o encontrada", 404);
+    }
+    if (existing.userId !== userId) {
+      throw new AppError("N\xE3o autorizado", 403);
+    }
+    const [err, goal] = await catchError(this.goalsModel.update(id, data));
+    if (err) {
+      throw new AppError("Erro ao atualizar meta", 500);
+    }
+    return reply.send({ goal });
+  };
+  contribute = async (req, reply) => {
+    const userId = req.user.sub;
+    const { id } = req.params;
+    const data = contributeGoalSchema.parse(req.body);
+    const [error, existing] = await catchError(this.goalsModel.findById(id));
+    if (error) {
+      throw new AppError("Erro ao buscar meta", 500);
+    }
+    if (!existing) {
+      throw new AppError("Meta n\xE3o encontrada", 404);
+    }
+    if (existing.userId !== userId) {
+      throw new AppError("N\xE3o autorizado", 403);
+    }
+    const [err, goal] = await catchError(
+      this.goalsModel.contribute(userId, id, data.amount)
+    );
+    if (err) {
+      throw new AppError("Erro ao contribuir com meta", 500);
+    }
+    return reply.send({ goal });
+  };
+  withdraw = async (req, reply) => {
+    const userId = req.user.sub;
+    const { id } = req.params;
+    const data = withdrawGoalSchema.parse(req.body);
+    const [error, existing] = await catchError(this.goalsModel.findById(id));
+    if (error) {
+      throw new AppError("Erro ao buscar meta", 500);
+    }
+    if (!existing) {
+      throw new AppError("Meta n\xE3o encontrada", 404);
+    }
+    if (existing.userId !== userId) {
+      throw new AppError("N\xE3o autorizado", 403);
+    }
+    const [err, result] = await catchError(
+      this.goalsModel.withdraw(userId, id, data.amount)
+    );
+    if (err) {
+      if (err.message === "Valor maior que o saldo dispon\xEDvel") {
+        throw new AppError(err.message, 400);
+      }
+      throw new AppError("Erro ao sacar da meta", 500);
+    }
+    return reply.send({ goal: result?.goal });
+  };
+  delete = async (req, reply) => {
+    const userId = req.user.sub;
+    const { id } = req.params;
+    const [error, existing] = await catchError(this.goalsModel.findById(id));
+    if (error) {
+      throw new AppError("Erro ao buscar meta", 500);
+    }
+    if (!existing) {
+      throw new AppError("Meta n\xE3o encontrada", 404);
+    }
+    if (existing.userId !== userId) {
+      throw new AppError("N\xE3o autorizado", 403);
+    }
+    const [err] = await catchError(this.goalsModel.delete(id));
+    if (err) {
+      throw new AppError("Erro ao excluir meta", 500);
+    }
+    return reply.status(204).send();
+  };
+  listContributions = async (req, reply) => {
+    const userId = req.user.sub;
+    const { id } = req.params;
+    const [error, goal] = await catchError(this.goalsModel.findById(id));
+    if (error) {
+      throw new AppError("Erro ao buscar meta", 500);
+    }
+    if (!goal) {
+      throw new AppError("Meta n\xE3o encontrada", 404);
+    }
+    if (goal.userId !== userId) {
+      throw new AppError("N\xE3o autorizado", 403);
+    }
+    const [err, contributions] = await catchError(
+      this.goalsModel.findContributionsByGoalId(id)
+    );
+    if (err) {
+      throw new AppError("Erro ao listar contribui\xE7\xF5es", 500);
+    }
+    return reply.send({ contributions });
+  };
+  removeContribution = async (req, reply) => {
+    const userId = req.user.sub;
+    const { id } = req.params;
+    const [err, result] = await catchError(
+      this.goalsModel.removeContribution(userId, id)
+    );
+    if (err) {
+      throw new AppError("Erro ao remover contribui\xE7\xE3o", 500);
+    }
+    if (!result) {
+      throw new AppError("Contribui\xE7\xE3o n\xE3o encontrada", 404);
+    }
+    return reply.send({ goal: result.goal });
+  };
+};
+var goals_controller_default = new GoalsController();
+
+// src/modules/goals/goals.routes.ts
+async function registerGoalsRoutes(app) {
+  const controller = new GoalsController();
+  app.addHook("onRequest", async (request, reply) => {
+    const path = request.url.split("?")[0];
+    const isPublicRoute = path === "/health" || path === "/docs" || path.startsWith("/docs/");
+    if (isPublicRoute) return;
+    if (!path.startsWith("/goals")) return;
+    try {
+      await request.jwtVerify();
+    } catch (err) {
+      reply.send(err);
+    }
+  });
+  app.get(
+    "/goals",
+    {
+      schema: {
+        description: "Lista metas do usu\xE1rio",
+        tags: ["Goals"],
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    controller.list
+  );
+  app.post(
+    "/goals",
+    {
+      schema: {
+        description: "Cria uma nova meta",
+        tags: ["Goals"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["name", "targetAmount"],
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 255 },
+            description: { type: "string", maxLength: 500 },
+            targetAmount: { type: "number", exclusiveMinimum: 0 },
+            deadline: { type: "string", format: "date-time" },
+            icon: { type: "string", maxLength: 50 },
+            color: { type: "string", maxLength: 20 }
+          }
+        }
+      }
+    },
+    controller.create
+  );
+  app.get(
+    "/goals/:id",
+    {
+      schema: {
+        description: "Detalha uma meta",
+        tags: ["Goals"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.get
+  );
+  app.put(
+    "/goals/:id",
+    {
+      schema: {
+        description: "Atualiza uma meta",
+        tags: ["Goals"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        },
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 255 },
+            description: { type: "string", maxLength: 500 },
+            targetAmount: { type: "number", exclusiveMinimum: 0 },
+            deadline: { type: "string", format: "date-time" },
+            icon: { type: "string", maxLength: 50 },
+            color: { type: "string", maxLength: 20 },
+            isActive: { type: "boolean" }
+          }
+        }
+      }
+    },
+    controller.update
+  );
+  app.post(
+    "/goals/:id/contribute",
+    {
+      schema: {
+        description: "Adiciona valor a uma meta",
+        tags: ["Goals"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        },
+        body: {
+          type: "object",
+          required: ["amount"],
+          properties: {
+            amount: { type: "number", exclusiveMinimum: 0 }
+          }
+        }
+      }
+    },
+    controller.contribute
+  );
+  app.post(
+    "/goals/:id/withdraw",
+    {
+      schema: {
+        description: "Saca valor de uma meta",
+        tags: ["Goals"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        },
+        body: {
+          type: "object",
+          required: ["amount"],
+          properties: {
+            amount: { type: "number", exclusiveMinimum: 0 }
+          }
+        }
+      }
+    },
+    controller.withdraw
+  );
+  app.delete(
+    "/goals/:id",
+    {
+      schema: {
+        description: "Deleta uma meta",
+        tags: ["Goals"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.delete
+  );
+  app.get(
+    "/goals/:id/contributions",
+    {
+      schema: {
+        description: "Lista contribui\xE7\xF5es de uma meta",
+        tags: ["Goals"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.listContributions
+  );
+  app.delete(
+    "/goals/contributions/:id",
+    {
+      schema: {
+        description: "Remove uma contribui\xE7\xE3o",
+        tags: ["Goals"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.removeContribution
+  );
+}
+
+// src/modules/subcategories/subcategories.model.ts
+var import_drizzle_orm6 = require("drizzle-orm");
 var SubcategoryModel = class {
   async findAll(userId) {
     return db.select({
@@ -1090,7 +2183,7 @@ var SubcategoryModel = class {
       icon: subcategories.icon,
       categoryId: subcategories.categoryId,
       categoryName: categories.name
-    }).from(subcategories).leftJoin(categories, (0, import_drizzle_orm2.eq)(subcategories.categoryId, categories.id)).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(subcategories.userId, userId), (0, import_drizzle_orm2.isNull)(subcategories.deletedAt))).orderBy((0, import_drizzle_orm2.asc)(subcategories.name));
+    }).from(subcategories).leftJoin(categories, (0, import_drizzle_orm6.eq)(subcategories.categoryId, categories.id)).where((0, import_drizzle_orm6.and)((0, import_drizzle_orm6.eq)(subcategories.userId, userId), (0, import_drizzle_orm6.isNull)(subcategories.deletedAt))).orderBy((0, import_drizzle_orm6.asc)(subcategories.name));
   }
   async findByCategory(userId, categoryId) {
     return db.select({
@@ -1100,15 +2193,15 @@ var SubcategoryModel = class {
       icon: subcategories.icon,
       categoryId: subcategories.categoryId
     }).from(subcategories).where(
-      (0, import_drizzle_orm2.and)(
-        (0, import_drizzle_orm2.eq)(subcategories.userId, userId),
-        (0, import_drizzle_orm2.eq)(subcategories.categoryId, categoryId),
-        (0, import_drizzle_orm2.isNull)(subcategories.deletedAt)
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(subcategories.userId, userId),
+        (0, import_drizzle_orm6.eq)(subcategories.categoryId, categoryId),
+        (0, import_drizzle_orm6.isNull)(subcategories.deletedAt)
       )
-    ).orderBy((0, import_drizzle_orm2.asc)(subcategories.name));
+    ).orderBy((0, import_drizzle_orm6.asc)(subcategories.name));
   }
   async findById(id, userId) {
-    const [subcategory] = await db.select().from(subcategories).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(subcategories.id, id), (0, import_drizzle_orm2.eq)(subcategories.userId, userId))).limit(1);
+    const [subcategory] = await db.select().from(subcategories).where((0, import_drizzle_orm6.and)((0, import_drizzle_orm6.eq)(subcategories.id, id), (0, import_drizzle_orm6.eq)(subcategories.userId, userId))).limit(1);
     return subcategory;
   }
   async create(userId, data) {
@@ -1123,45 +2216,45 @@ var SubcategoryModel = class {
   }
   async update(id, userId, data) {
     const [updated] = await db.update(subcategories).set(data).where(
-      (0, import_drizzle_orm2.and)(
-        (0, import_drizzle_orm2.eq)(subcategories.id, id),
-        (0, import_drizzle_orm2.eq)(subcategories.userId, userId),
-        (0, import_drizzle_orm2.isNull)(subcategories.deletedAt)
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(subcategories.id, id),
+        (0, import_drizzle_orm6.eq)(subcategories.userId, userId),
+        (0, import_drizzle_orm6.isNull)(subcategories.deletedAt)
       )
     ).returning();
     return updated;
   }
   async softDelete(id, userId) {
     const [deleted] = await db.update(subcategories).set({ deletedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm2.and)(
-        (0, import_drizzle_orm2.eq)(subcategories.id, id),
-        (0, import_drizzle_orm2.eq)(subcategories.userId, userId),
-        (0, import_drizzle_orm2.isNull)(subcategories.deletedAt)
+      (0, import_drizzle_orm6.and)(
+        (0, import_drizzle_orm6.eq)(subcategories.id, id),
+        (0, import_drizzle_orm6.eq)(subcategories.userId, userId),
+        (0, import_drizzle_orm6.isNull)(subcategories.deletedAt)
       )
     ).returning();
     return deleted;
   }
   async restore(id, userId) {
-    const [restored] = await db.update(subcategories).set({ deletedAt: null }).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(subcategories.id, id), (0, import_drizzle_orm2.eq)(subcategories.userId, userId))).returning();
+    const [restored] = await db.update(subcategories).set({ deletedAt: null }).where((0, import_drizzle_orm6.and)((0, import_drizzle_orm6.eq)(subcategories.id, id), (0, import_drizzle_orm6.eq)(subcategories.userId, userId))).returning();
     return restored;
   }
 };
 var subcategories_model_default = new SubcategoryModel();
 
 // src/modules/subcategories/subcategories.schema.ts
-var import_zod4 = require("zod");
-var createSubcategorySchema = import_zod4.z.object({
-  name: import_zod4.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
-  color: import_zod4.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
-  icon: import_zod4.z.string().optional(),
-  categoryId: import_zod4.z.string().uuid("ID da categoria inv\xE1lido")
+var import_zod5 = require("zod");
+var createSubcategorySchema = import_zod5.z.object({
+  name: import_zod5.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
+  color: import_zod5.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
+  icon: import_zod5.z.string().optional(),
+  categoryId: import_zod5.z.string().uuid("ID da categoria inv\xE1lido")
 });
-var subcategorySchema = import_zod4.z.object({
-  id: import_zod4.z.string().uuid(),
-  name: import_zod4.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
-  color: import_zod4.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
-  icon: import_zod4.z.string().optional().nullable(),
-  categoryId: import_zod4.z.string().uuid("ID da categoria inv\xE1lido")
+var subcategorySchema = import_zod5.z.object({
+  id: import_zod5.z.string().uuid(),
+  name: import_zod5.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
+  color: import_zod5.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
+  icon: import_zod5.z.string().optional().nullable(),
+  categoryId: import_zod5.z.string().uuid("ID da categoria inv\xE1lido")
 });
 var updateSubcategorySchema = createSubcategorySchema.partial();
 
@@ -1173,13 +2266,13 @@ var SubcategoriesController = class {
   list = async (request, reply) => {
     const { sub: userId } = request.user;
     const { categoryId } = request.query;
-    let subcategories3;
+    let subcategories2;
     if (categoryId) {
-      subcategories3 = await this.model.findByCategory(userId, categoryId);
+      subcategories2 = await this.model.findByCategory(userId, categoryId);
     } else {
-      subcategories3 = await this.model.findAll(userId);
+      subcategories2 = await this.model.findAll(userId);
     }
-    return reply.send(subcategories3);
+    return reply.send(subcategories2);
   };
   create = async (request, reply) => {
     const { sub: userId } = request.user;
@@ -1342,7 +2435,7 @@ async function registerSubcategoriesRoutes(app) {
 }
 
 // src/modules/seed/dashboard.export.model.ts
-var import_drizzle_orm3 = require("drizzle-orm");
+var import_drizzle_orm7 = require("drizzle-orm");
 var import_exceljs = __toESM(require("exceljs"), 1);
 var import_pdfkit = __toESM(require("pdfkit"), 1);
 var DEFAULT_COLOR = "FF607D8B";
@@ -1356,7 +2449,7 @@ var DashboardExportModel = class {
     const userCategories = await db.select({
       name: categories.name,
       color: categories.color
-    }).from(categories).where((0, import_drizzle_orm3.eq)(categories.userId, userId));
+    }).from(categories).where((0, import_drizzle_orm7.eq)(categories.userId, userId));
     const colorMap = /* @__PURE__ */ new Map();
     for (const cat of userCategories) {
       const hexColor = cat.color.replace("#", "");
@@ -1375,18 +2468,18 @@ var DashboardExportModel = class {
       paymentMethod: paymentMethods.name,
       type: transactions.type,
       amount: transactions.amount
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm3.eq)(transactions.categoryId, categories.id)).leftJoin(
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm7.eq)(transactions.categoryId, categories.id)).leftJoin(
       paymentMethods,
-      (0, import_drizzle_orm3.eq)(transactions.paymentMethodId, paymentMethods.id)
+      (0, import_drizzle_orm7.eq)(transactions.paymentMethodId, paymentMethods.id)
     ).where(
-      (0, import_drizzle_orm3.and)(
-        (0, import_drizzle_orm3.eq)(transactions.userId, userId),
-        filters.type ? (0, import_drizzle_orm3.eq)(transactions.type, filters.type) : void 0,
-        filters.categoryId ? (0, import_drizzle_orm3.eq)(transactions.categoryId, filters.categoryId) : void 0,
-        startDate ? (0, import_drizzle_orm3.gte)(transactions.date, startDate) : void 0,
-        endDate ? (0, import_drizzle_orm3.lte)(transactions.date, endDate) : void 0
+      (0, import_drizzle_orm7.and)(
+        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm7.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm7.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        startDate ? (0, import_drizzle_orm7.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm7.lte)(transactions.date, endDate) : void 0
       )
-    ).orderBy((0, import_drizzle_orm3.desc)(transactions.date));
+    ).orderBy((0, import_drizzle_orm7.desc)(transactions.date));
     return rows;
   }
   async getSummary(userId, filters) {
@@ -2227,11 +3320,11 @@ async function registerSeedDashboardRoutes(app) {
 
 // src/modules/auth/auth.model.ts
 var import_bcryptjs = __toESM(require("bcryptjs"), 1);
-var import_drizzle_orm4 = require("drizzle-orm");
+var import_drizzle_orm8 = require("drizzle-orm");
 var SALT_ROUNDS = 10;
 var AuthModel = class {
   async findByEmail(email) {
-    const [user] = await db.select().from(users).where((0, import_drizzle_orm4.eq)(users.email, email)).limit(1);
+    const [user] = await db.select().from(users).where((0, import_drizzle_orm8.eq)(users.email, email)).limit(1);
     return user;
   }
   async findById(id) {
@@ -2240,7 +3333,11 @@ var AuthModel = class {
       name: users.name,
       email: users.email,
       createdAt: users.createdAt
-    }).from(users).where((0, import_drizzle_orm4.eq)(users.id, id)).limit(1);
+    }).from(users).where((0, import_drizzle_orm8.eq)(users.id, id)).limit(1);
+    return user;
+  }
+  async findByIdWithPassword(id) {
+    const [user] = await db.select().from(users).where((0, import_drizzle_orm8.eq)(users.id, id)).limit(1);
     return user;
   }
   async verifyPassword(password, hash) {
@@ -2260,19 +3357,37 @@ var AuthModel = class {
     });
     return user;
   }
+  async updateName(id, name) {
+    const [user] = await db.update(users).set({ name }).where((0, import_drizzle_orm8.eq)(users.id, id)).returning({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      createdAt: users.createdAt
+    });
+    return user;
+  }
+  async updatePassword(id, newPassword) {
+    const hash = await import_bcryptjs.default.hash(newPassword, SALT_ROUNDS);
+    const [user] = await db.update(users).set({ password: hash }).where((0, import_drizzle_orm8.eq)(users.id, id)).returning({
+      id: users.id,
+      name: users.name,
+      email: users.email
+    });
+    return user;
+  }
 };
 
 // src/modules/auth/auth.schema.ts
-var import_zod5 = require("zod");
-var registerSchema = import_zod5.z.object({
-  name: import_zod5.z.string().min(1).max(120),
-  email: import_zod5.z.string().email(),
-  password: import_zod5.z.string().min(6).max(128)
+var import_zod6 = require("zod");
+var registerSchema = import_zod6.z.object({
+  name: import_zod6.z.string().min(1).max(120),
+  email: import_zod6.z.string().email(),
+  password: import_zod6.z.string().min(6).max(128)
 });
-var loginSchema = import_zod5.z.object({
-  email: import_zod5.z.string().email(),
-  password: import_zod5.z.string().min(6).max(128),
-  rememberMe: import_zod5.z.boolean().optional()
+var loginSchema = import_zod6.z.object({
+  email: import_zod6.z.string().email(),
+  password: import_zod6.z.string().min(6).max(128),
+  rememberMe: import_zod6.z.boolean().optional()
 });
 
 // src/modules/auth/auth.controller.ts
@@ -2350,6 +3465,38 @@ var AuthController = class {
     reply.clearCookie("token", { path: "/" });
     return reply.send({ message: "Logout realizado" });
   };
+  updateMe = async (request, reply) => {
+    await catchError(request.jwtVerify());
+    const { sub } = request.user;
+    const body = request.body;
+    if (!body.name) {
+      throw new AppError("Nome \xE9 obrigat\xF3rio", 400);
+    }
+    const [err, user] = await catchError(
+      this.authModel.updateName(sub, body.name)
+    );
+    if (err) throw new AppError("Erro ao atualizar perfil", 500);
+    return reply.send({ user });
+  };
+  changePassword = async (request, reply) => {
+    await catchError(request.jwtVerify());
+    const { sub } = request.user;
+    const body = request.body;
+    const [errUser, user] = await catchError(this.authModel.findByIdWithPassword(sub));
+    if (errUser || !user) throw new AppError("Usu\xE1rio n\xE3o encontrado", 404);
+    const [errVerify, isValid] = await catchError(
+      this.authModel.verifyPassword(body.currentPassword, user.password)
+    );
+    if (errVerify) throw new AppError("Erro ao verificar senha", 500);
+    if (!isValid) {
+      throw new AppError("Senha atual incorreta", 401);
+    }
+    const [errUpdate] = await catchError(
+      this.authModel.updatePassword(sub, body.newPassword)
+    );
+    if (errUpdate) throw new AppError("Erro ao alterar senha", 500);
+    return reply.send({ message: "Senha alterada com sucesso" });
+  };
 };
 
 // src/modules/auth/auth.routes.ts
@@ -2414,64 +3561,50 @@ async function registerAuthRoutes(app) {
     },
     authController.me
   );
+  app.put(
+    "/auth/me",
+    {
+      schema: {
+        description: "Atualiza os dados do usu\xE1rio",
+        tags: ["Auth"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string" }
+          }
+        }
+      }
+    },
+    authController.updateMe
+  );
+  app.put(
+    "/auth/me/password",
+    {
+      schema: {
+        description: "Altera a senha do usu\xE1rio",
+        tags: ["Auth"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["currentPassword", "newPassword"],
+          properties: {
+            currentPassword: { type: "string" },
+            newPassword: { type: "string", minLength: 6 }
+          }
+        }
+      }
+    },
+    authController.changePassword
+  );
 }
 
-// src/modules/categories/categories.model.ts
-var import_drizzle_orm5 = require("drizzle-orm");
-var CategoryModel = class {
-  async findAll(userId) {
-    return db.select({
-      id: categories.id,
-      name: categories.name,
-      color: categories.color,
-      icon: categories.icon
-    }).from(categories).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(categories.userId, userId), (0, import_drizzle_orm5.isNull)(categories.deletedAt))).orderBy((0, import_drizzle_orm5.asc)(categories.name));
-  }
-  async findById(id, userId) {
-    const [category] = await db.select().from(categories).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(categories.id, id), (0, import_drizzle_orm5.eq)(categories.userId, userId))).limit(1);
-    return category;
-  }
-  async createCategory(userId, data) {
-    const [category] = await db.insert(categories).values({
-      userId,
-      name: data.name,
-      color: data.color || "#3B82F6",
-      icon: data.icon
-    }).returning();
-    return category;
-  }
-  async updateCategory(id, userId, data) {
-    const [updated] = await db.update(categories).set(data).where(
-      (0, import_drizzle_orm5.and)(
-        (0, import_drizzle_orm5.eq)(categories.id, id),
-        (0, import_drizzle_orm5.eq)(categories.userId, userId),
-        (0, import_drizzle_orm5.isNull)(categories.deletedAt)
-      )
-    ).returning();
-    return updated;
-  }
-  async softDelete(id, userId) {
-    const [deleted] = await db.update(categories).set({ deletedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm5.and)(
-        (0, import_drizzle_orm5.eq)(categories.id, id),
-        (0, import_drizzle_orm5.eq)(categories.userId, userId),
-        (0, import_drizzle_orm5.isNull)(categories.deletedAt)
-      )
-    ).returning();
-    return deleted;
-  }
-  async restoreCategory(id, userId) {
-    const [restored] = await db.update(categories).set({ deletedAt: null }).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(categories.id, id), (0, import_drizzle_orm5.eq)(categories.userId, userId))).returning();
-    return restored;
-  }
-};
-
 // src/modules/categories/categories.schema.ts
-var import_zod6 = require("zod");
-var createCategorySchema = import_zod6.z.object({
-  name: import_zod6.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
-  color: import_zod6.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
-  icon: import_zod6.z.string().optional()
+var import_zod7 = require("zod");
+var createCategorySchema = import_zod7.z.object({
+  name: import_zod7.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
+  color: import_zod7.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
+  icon: import_zod7.z.string().optional()
 });
 var updateCategorySchema = createCategorySchema.partial();
 
@@ -2650,61 +3783,10 @@ async function registerCategoriesRoutes(app) {
   );
 }
 
-// src/modules/payment-methods/payment-methods.model.ts
-var import_drizzle_orm6 = require("drizzle-orm");
-var PaymentMethodModel = class {
-  async findAll(userId) {
-    return db.select({
-      id: paymentMethods.id,
-      name: paymentMethods.name
-    }).from(paymentMethods).where(
-      (0, import_drizzle_orm6.and)(
-        (0, import_drizzle_orm6.eq)(paymentMethods.userId, userId),
-        (0, import_drizzle_orm6.isNull)(paymentMethods.deletedAt)
-      )
-    ).orderBy((0, import_drizzle_orm6.asc)(paymentMethods.name));
-  }
-  async findById(id, userId) {
-    const [method] = await db.select().from(paymentMethods).where((0, import_drizzle_orm6.and)((0, import_drizzle_orm6.eq)(paymentMethods.id, id), (0, import_drizzle_orm6.eq)(paymentMethods.userId, userId))).limit(1);
-    return method;
-  }
-  async createMethod(userId, data) {
-    const [method] = await db.insert(paymentMethods).values({
-      userId,
-      name: data.name
-    }).returning();
-    return method;
-  }
-  async updateMethod(id, userId, data) {
-    const [updated] = await db.update(paymentMethods).set(data).where(
-      (0, import_drizzle_orm6.and)(
-        (0, import_drizzle_orm6.eq)(paymentMethods.id, id),
-        (0, import_drizzle_orm6.eq)(paymentMethods.userId, userId),
-        (0, import_drizzle_orm6.isNull)(paymentMethods.deletedAt)
-      )
-    ).returning();
-    return updated;
-  }
-  async softDelete(id, userId) {
-    const [deleted] = await db.update(paymentMethods).set({ deletedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm6.and)(
-        (0, import_drizzle_orm6.eq)(paymentMethods.id, id),
-        (0, import_drizzle_orm6.eq)(paymentMethods.userId, userId),
-        (0, import_drizzle_orm6.isNull)(paymentMethods.deletedAt)
-      )
-    ).returning();
-    return deleted;
-  }
-  async restoreMethod(id, userId) {
-    const [restored] = await db.update(paymentMethods).set({ deletedAt: null }).where((0, import_drizzle_orm6.and)((0, import_drizzle_orm6.eq)(paymentMethods.id, id), (0, import_drizzle_orm6.eq)(paymentMethods.userId, userId))).returning();
-    return restored;
-  }
-};
-
 // src/modules/payment-methods/payment-methods.schema.ts
-var import_zod7 = require("zod");
-var createPaymentMethodSchema = import_zod7.z.object({
-  name: import_zod7.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100)
+var import_zod8 = require("zod");
+var createPaymentMethodSchema = import_zod8.z.object({
+  name: import_zod8.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100)
 });
 var updatePaymentMethodSchema = createPaymentMethodSchema.partial();
 
@@ -2781,7 +3863,7 @@ async function registerPaymentMethodsRoutes(app) {
   const PUBLIC_ROUTES4 = ["/health", "/docs"];
   app.addHook("onRequest", async (request, reply) => {
     const path = request.url.split("?")[0];
-    const isPublicRoute = PUBLIC_ROUTES4.some((route) => path === route || path.startsWith(route + "/"));
+    const isPublicRoute = PUBLIC_ROUTES4.some((route) => path === route || path.startsWith(`${route}/`));
     if (isPublicRoute) return;
     if (!path.startsWith("/payment-methods")) return;
     try {
@@ -2884,147 +3966,21 @@ async function registerPaymentMethodsRoutes(app) {
   );
 }
 
-// src/modules/transactions/transactions.model.ts
-var import_drizzle_orm7 = require("drizzle-orm");
-var TransactionModel = class {
-  async findAll(userId, filters) {
-    const startDate = filters.startDate ? new Date(filters.startDate) : void 0;
-    const endDate = filters.endDate ? new Date(filters.endDate) : void 0;
-    const query = db.select({
-      id: transactions.id,
-      description: transactions.description,
-      subDescription: transactions.subDescription,
-      amount: transactions.amount,
-      type: transactions.type,
-      date: transactions.date,
-      categoryId: transactions.categoryId,
-      subcategoryId: transactions.subcategoryId,
-      category: {
-        id: categories.id,
-        name: categories.name,
-        color: categories.color,
-        icon: categories.icon
-      },
-      subcategory: {
-        id: subcategories.id,
-        name: subcategories.name,
-        color: subcategories.color
-      },
-      paymentMethodId: transactions.paymentMethodId,
-      paymentMethod: {
-        id: paymentMethods.id,
-        name: paymentMethods.name
-      },
-      createdAt: transactions.createdAt
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm7.eq)(transactions.categoryId, categories.id)).leftJoin(subcategories, (0, import_drizzle_orm7.eq)(transactions.subcategoryId, subcategories.id)).leftJoin(
-      paymentMethods,
-      (0, import_drizzle_orm7.eq)(transactions.paymentMethodId, paymentMethods.id)
-    ).where(
-      (0, import_drizzle_orm7.and)(
-        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
-        filters.type ? (0, import_drizzle_orm7.eq)(transactions.type, filters.type) : void 0,
-        filters.categoryId ? (0, import_drizzle_orm7.eq)(transactions.categoryId, filters.categoryId) : void 0,
-        filters.paymentMethodId ? (0, import_drizzle_orm7.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
-        filters.month ? import_drizzle_orm7.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
-        startDate ? (0, import_drizzle_orm7.gte)(transactions.date, startDate) : void 0,
-        endDate ? (0, import_drizzle_orm7.lte)(transactions.date, endDate) : void 0
-      )
-    ).orderBy((0, import_drizzle_orm7.desc)(transactions.date), (0, import_drizzle_orm7.desc)(transactions.createdAt)).limit(filters.limit).offset((filters.page - 1) * filters.limit);
-    const countQuery = db.select({ count: (0, import_drizzle_orm7.count)() }).from(transactions).where(
-      (0, import_drizzle_orm7.and)(
-        (0, import_drizzle_orm7.eq)(transactions.userId, userId),
-        filters.type ? (0, import_drizzle_orm7.eq)(transactions.type, filters.type) : void 0,
-        filters.categoryId ? (0, import_drizzle_orm7.eq)(transactions.categoryId, filters.categoryId) : void 0,
-        filters.paymentMethodId ? (0, import_drizzle_orm7.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
-        filters.month ? import_drizzle_orm7.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
-        startDate ? (0, import_drizzle_orm7.gte)(transactions.date, startDate) : void 0,
-        endDate ? (0, import_drizzle_orm7.lte)(transactions.date, endDate) : void 0
-      )
-    );
-    const [data, [{ count: totalSize }]] = await Promise.all([
-      query,
-      countQuery
-    ]);
-    return {
-      data,
-      total: Number(totalSize)
-    };
-  }
-  async findById(id, userId) {
-    const [transaction] = await db.select({
-      id: transactions.id,
-      description: transactions.description,
-      subDescription: transactions.subDescription,
-      amount: transactions.amount,
-      type: transactions.type,
-      date: transactions.date,
-      categoryId: transactions.categoryId,
-      category: {
-        id: categories.id,
-        name: categories.name,
-        color: categories.color,
-        icon: categories.icon
-      },
-      paymentMethodId: transactions.paymentMethodId,
-      paymentMethod: {
-        id: paymentMethods.id,
-        name: paymentMethods.name
-      },
-      createdAt: transactions.createdAt
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm7.eq)(transactions.categoryId, categories.id)).leftJoin(
-      paymentMethods,
-      (0, import_drizzle_orm7.eq)(transactions.paymentMethodId, paymentMethods.id)
-    ).where((0, import_drizzle_orm7.and)((0, import_drizzle_orm7.eq)(transactions.id, id), (0, import_drizzle_orm7.eq)(transactions.userId, userId))).limit(1);
-    return transaction;
-  }
-  async createTransaction(userId, data) {
-    const [transaction] = await db.insert(transactions).values({
-      userId,
-      description: data.description,
-      subDescription: data.subDescription,
-      amount: data.amount.toString(),
-      type: data.type,
-      date: new Date(data.date),
-      categoryId: data.categoryId,
-      subcategoryId: data.subcategoryId,
-      paymentMethodId: data.paymentMethodId
-    }).returning();
-    return transaction;
-  }
-  async updateTransaction(id, userId, data) {
-    const updateData = {};
-    if (data.description !== void 0) updateData.description = data.description;
-    if (data.subDescription !== void 0) updateData.subDescription = data.subDescription;
-    if (data.amount !== void 0) updateData.amount = data.amount.toString();
-    if (data.type !== void 0) updateData.type = data.type;
-    if (data.date !== void 0) updateData.date = new Date(data.date);
-    if (data.categoryId !== void 0) updateData.categoryId = data.categoryId;
-    if (data.subcategoryId !== void 0) updateData.subcategoryId = data.subcategoryId;
-    if (data.paymentMethodId !== void 0) updateData.paymentMethodId = data.paymentMethodId;
-    const [updated] = await db.update(transactions).set(updateData).where((0, import_drizzle_orm7.and)((0, import_drizzle_orm7.eq)(transactions.id, id), (0, import_drizzle_orm7.eq)(transactions.userId, userId))).returning();
-    return updated;
-  }
-  async deleteTransaction(id, userId) {
-    const [deleted] = await db.delete(transactions).where((0, import_drizzle_orm7.and)((0, import_drizzle_orm7.eq)(transactions.id, id), (0, import_drizzle_orm7.eq)(transactions.userId, userId))).returning();
-    return deleted;
-  }
-};
-
 // src/modules/recurring/recurring.model.ts
-var import_drizzle_orm8 = require("drizzle-orm");
+var import_drizzle_orm9 = require("drizzle-orm");
 var RecurringTransactionModel = class {
   async findAll(userId, filters) {
-    let conditions = (0, import_drizzle_orm8.eq)(recurringTransactions.userId, userId);
+    let conditions = (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId);
     if (filters?.isActive !== void 0) {
-      conditions = (0, import_drizzle_orm8.and)(
+      conditions = (0, import_drizzle_orm9.and)(
         conditions,
-        (0, import_drizzle_orm8.eq)(recurringTransactions.isActive, filters.isActive)
+        (0, import_drizzle_orm9.eq)(recurringTransactions.isActive, filters.isActive)
       );
     }
     if (filters?.type) {
-      conditions = (0, import_drizzle_orm8.and)(
+      conditions = (0, import_drizzle_orm9.and)(
         conditions,
-        (0, import_drizzle_orm8.eq)(recurringTransactions.type, filters.type)
+        (0, import_drizzle_orm9.eq)(recurringTransactions.type, filters.type)
       );
     }
     return db.select({
@@ -3054,10 +4010,10 @@ var RecurringTransactionModel = class {
       isActive: recurringTransactions.isActive,
       lastGeneratedAt: recurringTransactions.lastGeneratedAt,
       createdAt: recurringTransactions.createdAt
-    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm8.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
+    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm9.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
       paymentMethods,
-      (0, import_drizzle_orm8.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
-    ).where(conditions).orderBy((0, import_drizzle_orm8.asc)(recurringTransactions.createdAt));
+      (0, import_drizzle_orm9.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
+    ).where(conditions).orderBy((0, import_drizzle_orm9.asc)(recurringTransactions.createdAt));
   }
   async findById(id, userId) {
     const [recurring] = await db.select({
@@ -3087,13 +4043,13 @@ var RecurringTransactionModel = class {
       isActive: recurringTransactions.isActive,
       lastGeneratedAt: recurringTransactions.lastGeneratedAt,
       createdAt: recurringTransactions.createdAt
-    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm8.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
+    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm9.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
       paymentMethods,
-      (0, import_drizzle_orm8.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
+      (0, import_drizzle_orm9.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
     ).where(
-      (0, import_drizzle_orm8.and)(
-        (0, import_drizzle_orm8.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm8.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm9.and)(
+        (0, import_drizzle_orm9.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId)
       )
     ).limit(1);
     return recurring;
@@ -3139,9 +4095,9 @@ var RecurringTransactionModel = class {
     }
     updateData.updatedAt = /* @__PURE__ */ new Date();
     const [updated] = await db.update(recurringTransactions).set(updateData).where(
-      (0, import_drizzle_orm8.and)(
-        (0, import_drizzle_orm8.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm8.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm9.and)(
+        (0, import_drizzle_orm9.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId)
       )
     ).returning();
     return updated;
@@ -3150,46 +4106,55 @@ var RecurringTransactionModel = class {
     const existing = await this.findById(id, userId);
     if (!existing) return null;
     const [updated] = await db.update(recurringTransactions).set({ isActive: !existing.isActive, updatedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm8.and)(
-        (0, import_drizzle_orm8.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm8.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm9.and)(
+        (0, import_drizzle_orm9.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId)
       )
     ).returning();
     return updated;
   }
   async softDelete(id, userId) {
     const [deleted] = await db.update(recurringTransactions).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm8.and)(
-        (0, import_drizzle_orm8.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm8.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm9.and)(
+        (0, import_drizzle_orm9.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId)
       )
     ).returning();
     return deleted;
   }
+  async updateLastGeneratedAt(id, userId, date) {
+    const [updated] = await db.update(recurringTransactions).set({ lastGeneratedAt: date, updatedAt: /* @__PURE__ */ new Date() }).where(
+      (0, import_drizzle_orm9.and)(
+        (0, import_drizzle_orm9.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId)
+      )
+    ).returning();
+    return updated;
+  }
 };
 
 // src/modules/recurring/recurring.schema.ts
-var import_zod8 = require("zod");
-var recurringTransactionBaseSchema = import_zod8.z.object({
-  description: import_zod8.z.string().min(1, "Descri\xE7\xE3o \xE9 obrigat\xF3ria").max(120),
-  subDescription: import_zod8.z.string().max(120).optional(),
-  amount: import_zod8.z.number().positive("O valor deve ser positivo"),
-  type: import_zod8.z.enum(["income", "expense"], {
+var import_zod9 = require("zod");
+var recurringTransactionBaseSchema = import_zod9.z.object({
+  description: import_zod9.z.string().min(1, "Descri\xE7\xE3o \xE9 obrigat\xF3ria").max(120),
+  subDescription: import_zod9.z.string().max(120).optional(),
+  amount: import_zod9.z.number().positive("O valor deve ser positivo"),
+  type: import_zod9.z.enum(["income", "expense"], {
     errorMap: () => ({ message: "O tipo deve ser income ou expense" })
   }),
-  categoryId: import_zod8.z.string().uuid("ID de categoria inv\xE1lido").optional(),
-  subcategoryId: import_zod8.z.string().uuid("ID de subcategoria inv\xE1lido").optional(),
-  paymentMethodId: import_zod8.z.string().uuid("ID de m\xE9todo de pagamento inv\xE1lido").optional(),
-  frequency: import_zod8.z.enum(["daily", "weekly", "monthly", "yearly", "custom"], {
+  categoryId: import_zod9.z.string().uuid("ID de categoria inv\xE1lido").optional(),
+  subcategoryId: import_zod9.z.string().uuid("ID de subcategoria inv\xE1lido").optional(),
+  paymentMethodId: import_zod9.z.string().uuid("ID de m\xE9todo de pagamento inv\xE1lido").optional(),
+  frequency: import_zod9.z.enum(["daily", "weekly", "monthly", "yearly", "custom"], {
     errorMap: () => ({ message: "Frequ\xEAncia inv\xE1lida" })
   }),
-  customIntervalDays: import_zod8.z.number().min(1, "Intervalo deve ser pelo menos 1 dia").max(365, "Intervalo m\xE1ximo \xE9 365 dias").optional(),
-  dayOfMonth: import_zod8.z.number().min(1, "Dia do m\xEAs deve ser entre 1 e 31").max(31, "Dia do m\xEAs deve ser entre 1 e 31"),
-  dayOfWeek: import_zod8.z.number().min(0).max(6).optional(),
-  startDate: import_zod8.z.string().datetime({
+  customIntervalDays: import_zod9.z.number().min(1, "Intervalo deve ser pelo menos 1 dia").max(365, "Intervalo m\xE1ximo \xE9 365 dias").optional(),
+  dayOfMonth: import_zod9.z.number().min(1, "Dia do m\xEAs deve ser entre 1 e 31").max(31, "Dia do m\xEAs deve ser entre 1 e 31"),
+  dayOfWeek: import_zod9.z.number().min(0).max(6).optional(),
+  startDate: import_zod9.z.string().datetime({
     message: "Data inicial deve ser ISO 8601 v\xE1lida"
   }),
-  endDate: import_zod8.z.string().datetime({ message: "Data final deve ser ISO 8601 v\xE1lida" }).optional()
+  endDate: import_zod9.z.string().datetime({ message: "Data final deve ser ISO 8601 v\xE1lida" }).optional()
 });
 var createRecurringTransactionSchema = recurringTransactionBaseSchema.refine(
   (data) => {
@@ -3204,18 +4169,18 @@ var createRecurringTransactionSchema = recurringTransactionBaseSchema.refine(
   }
 );
 var updateRecurringTransactionSchema = recurringTransactionBaseSchema.partial();
-var listRecurringTransactionsSchema = import_zod8.z.object({
-  isActive: import_zod8.z.boolean().optional(),
-  type: import_zod8.z.enum(["income", "expense"]).optional()
+var listRecurringTransactionsSchema = import_zod9.z.object({
+  isActive: import_zod9.z.boolean().optional(),
+  type: import_zod9.z.enum(["income", "expense"]).optional()
 });
 
 // src/modules/recurring/recurring.controller.ts
 var RecurringTransactionController = class {
-  constructor(recurringModel = new RecurringTransactionModel(), categoryModel = new CategoryModel(), paymentMethodModel = new PaymentMethodModel(), transactionModel = new TransactionModel()) {
+  constructor(recurringModel = new RecurringTransactionModel(), categoryModel = new CategoryModel(), paymentMethodModel = new PaymentMethodModel(), transactionModel2 = new TransactionModel()) {
     this.recurringModel = recurringModel;
     this.categoryModel = categoryModel;
     this.paymentMethodModel = paymentMethodModel;
-    this.transactionModel = transactionModel;
+    this.transactionModel = transactionModel2;
   }
   listRecurringTransactions = async (request, reply) => {
     const { sub: userId } = request.user;
@@ -3360,9 +4325,7 @@ var RecurringTransactionController = class {
       })
     );
     if (errCreate) throw new AppError("Erro ao gerar transa\xE7\xE3o", 500);
-    await this.recurringModel.updateRecurringTransaction(id, userId, {
-      lastGeneratedAt: now.toISOString()
-    });
+    await this.recurringModel.updateLastGeneratedAt(id, userId, now);
     return reply.status(201).send(transaction);
   };
   calculateNextDate(recurring) {
@@ -3470,18 +4433,23 @@ async function registerRecurringRoutes(app) {
         security: [{ bearerAuth: [] }],
         body: {
           type: "object",
-          required: ["description", "amount", "type", "date", "frequency"],
+          required: ["description", "amount", "type", "startDate", "frequency"],
           properties: {
             description: { type: "string" },
+            subDescription: { type: "string" },
             amount: { type: "number" },
             type: { type: "string", enum: ["income", "expense"] },
-            date: { type: "string", format: "date" },
+            startDate: { type: "string" },
+            endDate: { type: "string" },
             frequency: {
               type: "string",
               enum: ["daily", "weekly", "monthly", "yearly", "custom"]
             },
             customIntervalDays: { type: "integer" },
+            dayOfMonth: { type: "integer" },
+            dayOfWeek: { type: "integer" },
             categoryId: { type: "string", format: "uuid" },
+            subcategoryId: { type: "string", format: "uuid" },
             paymentMethodId: { type: "string", format: "uuid" }
           }
         }
@@ -3506,15 +4474,20 @@ async function registerRecurringRoutes(app) {
           type: "object",
           properties: {
             description: { type: "string" },
+            subDescription: { type: "string" },
             amount: { type: "number" },
             type: { type: "string", enum: ["income", "expense"] },
-            date: { type: "string", format: "date" },
+            startDate: { type: "string" },
+            endDate: { type: "string" },
             frequency: {
               type: "string",
               enum: ["daily", "weekly", "monthly", "yearly", "custom"]
             },
             customIntervalDays: { type: "integer" },
+            dayOfMonth: { type: "integer" },
+            dayOfWeek: { type: "integer" },
             categoryId: { type: "string", format: "uuid" },
+            subcategoryId: { type: "string", format: "uuid" },
             paymentMethodId: { type: "string", format: "uuid" }
           }
         }
@@ -3576,7 +4549,7 @@ async function registerRecurringRoutes(app) {
 }
 
 // src/modules/summary/summary.model.ts
-var import_drizzle_orm9 = require("drizzle-orm");
+var import_drizzle_orm10 = require("drizzle-orm");
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -3639,36 +4612,41 @@ function resolveRange(filters) {
   return { start: start2, endExclusive, previousStart, previousEndExclusive };
 }
 var SummaryModel = class {
+  async getMetaCategoryId(userId) {
+    const [metaCategory] = await db.select({ id: categories.id }).from(categories).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(categories.userId, userId), (0, import_drizzle_orm10.eq)(categories.name, "Meta"))).limit(1);
+    return metaCategory?.id ?? null;
+  }
   async getSummary(userId, filters = {}) {
     const range = resolveRange(filters);
+    const metaCategoryId = await this.getMetaCategoryId(userId);
+    const balanceConditions = (0, import_drizzle_orm10.and)(
+      (0, import_drizzle_orm10.eq)(transactions.userId, userId),
+      (0, import_drizzle_orm10.gte)(transactions.date, range.start),
+      (0, import_drizzle_orm10.lt)(transactions.date, range.endExclusive)
+    );
+    const balanceConditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm10.and)(balanceConditions, (0, import_drizzle_orm10.ne)(transactions.categoryId, metaCategoryId)) : balanceConditions;
     const [balanceResult] = await db.select({
-      total: import_drizzle_orm9.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE -${transactions.amount} END), 0)`
-    }).from(transactions).where(
-      (0, import_drizzle_orm9.and)(
-        (0, import_drizzle_orm9.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm9.gte)(transactions.date, range.start),
-        (0, import_drizzle_orm9.lt)(transactions.date, range.endExclusive)
-      )
+      total: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE -${transactions.amount} END), 0)`
+    }).from(transactions).where(balanceConditionsWithFilter);
+    const currentConditions = (0, import_drizzle_orm10.and)(
+      (0, import_drizzle_orm10.eq)(transactions.userId, userId),
+      (0, import_drizzle_orm10.gte)(transactions.date, range.start),
+      (0, import_drizzle_orm10.lt)(transactions.date, range.endExclusive)
     );
+    const currentConditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm10.and)(currentConditions, (0, import_drizzle_orm10.ne)(transactions.categoryId, metaCategoryId)) : currentConditions;
     const [currentMonthTotals] = await db.select({
-      income: import_drizzle_orm9.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
-      expense: import_drizzle_orm9.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
-    }).from(transactions).where(
-      (0, import_drizzle_orm9.and)(
-        (0, import_drizzle_orm9.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm9.gte)(transactions.date, range.start),
-        (0, import_drizzle_orm9.lt)(transactions.date, range.endExclusive)
-      )
+      income: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
+      expense: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+    }).from(transactions).where(currentConditionsWithFilter);
+    const previousConditions = (0, import_drizzle_orm10.and)(
+      (0, import_drizzle_orm10.eq)(transactions.userId, userId),
+      (0, import_drizzle_orm10.gte)(transactions.date, range.previousStart),
+      (0, import_drizzle_orm10.lt)(transactions.date, range.previousEndExclusive)
     );
+    const previousConditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm10.and)(previousConditions, (0, import_drizzle_orm10.ne)(transactions.categoryId, metaCategoryId)) : previousConditions;
     const [previousMonthTotals] = await db.select({
-      expense: import_drizzle_orm9.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
-    }).from(transactions).where(
-      (0, import_drizzle_orm9.and)(
-        (0, import_drizzle_orm9.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm9.gte)(transactions.date, range.previousStart),
-        (0, import_drizzle_orm9.lt)(transactions.date, range.previousEndExclusive)
-      )
-    );
+      expense: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+    }).from(transactions).where(previousConditionsWithFilter);
     const expenseChange = previousMonthTotals.expense > 0 ? (currentMonthTotals.expense - previousMonthTotals.expense) / previousMonthTotals.expense * 100 : 0;
     return {
       totalBalance: Number(balanceResult.total),
@@ -3678,16 +4656,17 @@ var SummaryModel = class {
     };
   }
   async getMonthlySummary(userId) {
+    const metaCategoryId = await this.getMetaCategoryId(userId);
+    const conditions = (0, import_drizzle_orm10.and)(
+      (0, import_drizzle_orm10.eq)(transactions.userId, userId),
+      import_drizzle_orm10.sql`${transactions.date} >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'`
+    );
+    const conditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm10.and)(conditions, (0, import_drizzle_orm10.ne)(transactions.categoryId, metaCategoryId)) : conditions;
     const result = await db.select({
-      month: import_drizzle_orm9.sql`to_char(${transactions.date}, 'YYYY-MM')`,
-      income: import_drizzle_orm9.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
-      expense: import_drizzle_orm9.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
-    }).from(transactions).where(
-      (0, import_drizzle_orm9.and)(
-        (0, import_drizzle_orm9.eq)(transactions.userId, userId),
-        import_drizzle_orm9.sql`${transactions.date} >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'`
-      )
-    ).groupBy(import_drizzle_orm9.sql`to_char(${transactions.date}, 'YYYY-MM')`).orderBy(import_drizzle_orm9.sql`to_char(${transactions.date}, 'YYYY-MM')`);
+      month: import_drizzle_orm10.sql`to_char(${transactions.date}, 'YYYY-MM')`,
+      income: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
+      expense: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+    }).from(transactions).where(conditionsWithFilter).groupBy(import_drizzle_orm10.sql`to_char(${transactions.date}, 'YYYY-MM')`).orderBy(import_drizzle_orm10.sql`to_char(${transactions.date}, 'YYYY-MM')`);
     return result.map((r) => ({
       month: r.month,
       income: Number(r.income),
@@ -3697,19 +4676,21 @@ var SummaryModel = class {
   }
   async getByCategorySummary(userId, filters = {}) {
     const range = resolveRange(filters);
+    const transactionType = filters.type || "expense";
+    const metaCategoryId = await this.getMetaCategoryId(userId);
+    const conditions = (0, import_drizzle_orm10.and)(
+      (0, import_drizzle_orm10.eq)(transactions.userId, userId),
+      (0, import_drizzle_orm10.eq)(transactions.type, transactionType),
+      (0, import_drizzle_orm10.gte)(transactions.date, range.start),
+      (0, import_drizzle_orm10.lt)(transactions.date, range.endExclusive)
+    );
+    const conditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm10.and)(conditions, (0, import_drizzle_orm10.ne)(transactions.categoryId, metaCategoryId)) : conditions;
     const expenses = await db.select({
       categoryId: transactions.categoryId,
       categoryName: categories.name,
       color: categories.color,
-      total: import_drizzle_orm9.sql`SUM(${transactions.amount})`
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm9.eq)(transactions.categoryId, categories.id)).where(
-      (0, import_drizzle_orm9.and)(
-        (0, import_drizzle_orm9.eq)(transactions.userId, userId),
-        (0, import_drizzle_orm9.eq)(transactions.type, "expense"),
-        (0, import_drizzle_orm9.gte)(transactions.date, range.start),
-        (0, import_drizzle_orm9.lt)(transactions.date, range.endExclusive)
-      )
-    ).groupBy(transactions.categoryId, categories.name, categories.color).orderBy((0, import_drizzle_orm9.desc)(import_drizzle_orm9.sql`SUM(${transactions.amount})`));
+      total: import_drizzle_orm10.sql`SUM(${transactions.amount})`
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm10.eq)(transactions.categoryId, categories.id)).where(conditionsWithFilter).groupBy(transactions.categoryId, categories.name, categories.color).orderBy((0, import_drizzle_orm10.desc)(import_drizzle_orm10.sql`SUM(${transactions.amount})`));
     const totalExpense = expenses.reduce(
       (acc, curr) => acc + Number(curr.total),
       0
@@ -3725,11 +4706,12 @@ var SummaryModel = class {
 };
 
 // src/modules/summary/summary.schema.ts
-var import_zod9 = require("zod");
-var summaryPeriodSchema = import_zod9.z.enum(["7d", "30d", "month", "previous"]);
-var summaryQuerySchema = import_zod9.z.object({
-  month: import_zod9.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
-  period: summaryPeriodSchema.optional()
+var import_zod10 = require("zod");
+var summaryPeriodSchema = import_zod10.z.enum(["7d", "30d", "month", "previous"]);
+var summaryQuerySchema = import_zod10.z.object({
+  month: import_zod10.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
+  period: summaryPeriodSchema.optional(),
+  type: import_zod10.z.enum(["income", "expense"]).optional()
 });
 
 // src/modules/summary/summary.controller.ts
@@ -3756,9 +4738,9 @@ var SummaryController = class {
   };
   getByCategorySummary = async (request, reply) => {
     const { sub: userId } = request.user;
-    const { month, period } = summaryQuerySchema.parse(request.query);
+    const { month, period, type } = summaryQuerySchema.parse(request.query);
     const [err, byCategory] = await catchError(
-      this.summaryModel.getByCategorySummary(userId, { month, period })
+      this.summaryModel.getByCategorySummary(userId, { month, period, type })
     );
     if (err) throw new AppError("Erro ao obter resumo por categoria", 500);
     return reply.send(byCategory);
@@ -3835,35 +4817,35 @@ async function registerSummaryRoutes(app) {
 }
 
 // src/modules/transactions/transactions.schema.ts
-var import_zod10 = require("zod");
-var createTransactionSchema = import_zod10.z.object({
-  description: import_zod10.z.string().min(1, "Descri\xE7\xE3o \xE9 obrigat\xF3ria").max(120),
-  subDescription: import_zod10.z.string().max(120).optional(),
-  amount: import_zod10.z.number().positive("O valor deve ser positivo"),
-  type: import_zod10.z.enum(["income", "expense"], {
+var import_zod11 = require("zod");
+var createTransactionSchema = import_zod11.z.object({
+  description: import_zod11.z.string().min(1, "Descri\xE7\xE3o \xE9 obrigat\xF3ria").max(120),
+  subDescription: import_zod11.z.string().max(120).optional(),
+  amount: import_zod11.z.number().positive("O valor deve ser positivo"),
+  type: import_zod11.z.enum(["income", "expense"], {
     errorMap: () => ({ message: "O tipo deve ser income ou expense" })
   }),
-  date: import_zod10.z.string().min(1, "Data \xE9 obrigat\xF3ria"),
-  categoryId: import_zod10.z.string().uuid("ID de categoria inv\xE1lido").optional(),
-  subcategoryId: import_zod10.z.string().uuid("ID de subcategoria inv\xE1lido").optional(),
-  paymentMethodId: import_zod10.z.string().uuid("ID de m\xE9todo de pagamento inv\xE1lido").optional()
+  date: import_zod11.z.string().min(1, "Data \xE9 obrigat\xF3ria"),
+  categoryId: import_zod11.z.string().uuid("ID de categoria inv\xE1lido").optional(),
+  subcategoryId: import_zod11.z.string().uuid("ID de subcategoria inv\xE1lido").optional(),
+  paymentMethodId: import_zod11.z.string().uuid("ID de m\xE9todo de pagamento inv\xE1lido").optional()
 });
 var updateTransactionSchema = createTransactionSchema.partial();
-var listTransactionsSchema = import_zod10.z.object({
-  month: import_zod10.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
-  type: import_zod10.z.enum(["income", "expense"]).optional(),
-  categoryId: import_zod10.z.string().uuid().optional(),
-  paymentMethodId: import_zod10.z.string().uuid().optional(),
-  startDate: import_zod10.z.string().datetime({ message: "startDate deve ser ISO 8601 v\xE1lida" }).optional(),
-  endDate: import_zod10.z.string().datetime({ message: "endDate deve ser ISO 8601 v\xE1lida" }).optional(),
-  page: import_zod10.z.coerce.number().min(1).default(1),
-  limit: import_zod10.z.coerce.number().min(1).max(100).default(10)
+var listTransactionsSchema = import_zod11.z.object({
+  month: import_zod11.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
+  type: import_zod11.z.enum(["income", "expense"]).optional(),
+  categoryId: import_zod11.z.string().uuid().optional(),
+  paymentMethodId: import_zod11.z.string().uuid().optional(),
+  startDate: import_zod11.z.string().datetime({ message: "startDate deve ser ISO 8601 v\xE1lida" }).optional(),
+  endDate: import_zod11.z.string().datetime({ message: "endDate deve ser ISO 8601 v\xE1lida" }).optional(),
+  page: import_zod11.z.coerce.number().min(1).default(1),
+  limit: import_zod11.z.coerce.number().min(1).max(100).default(10)
 });
 
 // src/modules/transactions/transactions.controller.ts
 var TransactionsController = class {
-  constructor(transactionModel = new TransactionModel(), categoryModel = new CategoryModel(), paymentMethodModel = new PaymentMethodModel()) {
-    this.transactionModel = transactionModel;
+  constructor(transactionModel2 = new TransactionModel(), categoryModel = new CategoryModel(), paymentMethodModel = new PaymentMethodModel()) {
+    this.transactionModel = transactionModel2;
     this.categoryModel = categoryModel;
     this.paymentMethodModel = paymentMethodModel;
   }
@@ -4180,6 +5162,7 @@ async function buildApp() {
   });
   await registerRoutes(app);
   await registerBudgetsRoutes(app);
+  await registerGoalsRoutes(app);
   await registerSubcategoriesRoutes(app);
   await registerSeedDashboardRoutes(app);
   app.setErrorHandler(errorHandler);

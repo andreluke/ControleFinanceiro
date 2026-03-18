@@ -1,11 +1,12 @@
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, ne, sql } from "drizzle-orm";
 import { db } from "../../drizzle/client";
-import { categories, subcategories, transactions } from "../../drizzle/schema";
+import { categories, transactions } from "../../drizzle/schema";
 import type { SummaryPeriod } from "./summary.schema";
 
 interface SummaryFilters {
 	month?: string;
 	period?: SummaryPeriod;
+	type?: 'income' | 'expense';
 }
 
 interface DateRange {
@@ -87,21 +88,45 @@ function resolveRange(filters: SummaryFilters): DateRange {
 }
 
 export class SummaryModel {
+	private async getMetaCategoryId(userId: string): Promise<string | null> {
+		const [metaCategory] = await db
+			.select({ id: categories.id })
+			.from(categories)
+			.where(and(eq(categories.userId, userId), eq(categories.name, "Meta")))
+			.limit(1);
+		return metaCategory?.id ?? null;
+	}
+
 	async getSummary(userId: string, filters: SummaryFilters = {}) {
 		const range = resolveRange(filters);
+		const metaCategoryId = await this.getMetaCategoryId(userId);
+
+		const balanceConditions = and(
+			eq(transactions.userId, userId),
+			gte(transactions.date, range.start),
+			lt(transactions.date, range.endExclusive),
+		);
+
+		const balanceConditionsWithFilter = metaCategoryId
+			? and(balanceConditions, ne(transactions.categoryId, metaCategoryId))
+			: balanceConditions;
 
 		const [balanceResult] = await db
 			.select({
 				total: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE -${transactions.amount} END), 0)`,
 			})
 			.from(transactions)
-			.where(
-				and(
-					eq(transactions.userId, userId),
-					gte(transactions.date, range.start),
-					lt(transactions.date, range.endExclusive),
-				),
-			);
+			.where(balanceConditionsWithFilter);
+
+		const currentConditions = and(
+			eq(transactions.userId, userId),
+			gte(transactions.date, range.start),
+			lt(transactions.date, range.endExclusive),
+		);
+
+		const currentConditionsWithFilter = metaCategoryId
+			? and(currentConditions, ne(transactions.categoryId, metaCategoryId))
+			: currentConditions;
 
 		const [currentMonthTotals] = await db
 			.select({
@@ -109,26 +134,24 @@ export class SummaryModel {
 				expense: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`,
 			})
 			.from(transactions)
-			.where(
-				and(
-					eq(transactions.userId, userId),
-					gte(transactions.date, range.start),
-					lt(transactions.date, range.endExclusive),
-				),
-			);
+			.where(currentConditionsWithFilter);
+
+		const previousConditions = and(
+			eq(transactions.userId, userId),
+			gte(transactions.date, range.previousStart),
+			lt(transactions.date, range.previousEndExclusive),
+		);
+
+		const previousConditionsWithFilter = metaCategoryId
+			? and(previousConditions, ne(transactions.categoryId, metaCategoryId))
+			: previousConditions;
 
 		const [previousMonthTotals] = await db
 			.select({
 				expense: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`,
 			})
 			.from(transactions)
-			.where(
-				and(
-					eq(transactions.userId, userId),
-					gte(transactions.date, range.previousStart),
-					lt(transactions.date, range.previousEndExclusive),
-				),
-			);
+			.where(previousConditionsWithFilter);
 
 		const expenseChange =
 			previousMonthTotals.expense > 0
@@ -146,7 +169,17 @@ export class SummaryModel {
 	}
 
 	async getMonthlySummary(userId: string) {
-		// Últimos 6 meses
+		const metaCategoryId = await this.getMetaCategoryId(userId);
+
+		const conditions = and(
+			eq(transactions.userId, userId),
+			sql`${transactions.date} >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'`,
+		);
+
+		const conditionsWithFilter = metaCategoryId
+			? and(conditions, ne(transactions.categoryId, metaCategoryId))
+			: conditions;
+
 		const result = await db
 			.select({
 				month: sql<string>`to_char(${transactions.date}, 'YYYY-MM')`,
@@ -154,12 +187,7 @@ export class SummaryModel {
 				expense: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`,
 			})
 			.from(transactions)
-			.where(
-				and(
-					eq(transactions.userId, userId),
-					sql`${transactions.date} >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'`,
-				),
-			)
+			.where(conditionsWithFilter)
 			.groupBy(sql`to_char(${transactions.date}, 'YYYY-MM')`)
 			.orderBy(sql`to_char(${transactions.date}, 'YYYY-MM')`);
 
@@ -174,6 +202,19 @@ export class SummaryModel {
 
 	async getByCategorySummary(userId: string, filters: SummaryFilters = {}) {
 		const range = resolveRange(filters);
+		const transactionType = filters.type || 'expense';
+		const metaCategoryId = await this.getMetaCategoryId(userId);
+
+		const conditions = and(
+			eq(transactions.userId, userId),
+			eq(transactions.type, transactionType),
+			gte(transactions.date, range.start),
+			lt(transactions.date, range.endExclusive),
+		);
+
+		const conditionsWithFilter = metaCategoryId
+			? and(conditions, ne(transactions.categoryId, metaCategoryId))
+			: conditions;
 
 		const expenses = await db
 			.select({
@@ -184,14 +225,7 @@ export class SummaryModel {
 			})
 			.from(transactions)
 			.leftJoin(categories, eq(transactions.categoryId, categories.id))
-			.where(
-				and(
-					eq(transactions.userId, userId),
-					eq(transactions.type, "expense"),
-					gte(transactions.date, range.start),
-					lt(transactions.date, range.endExclusive),
-				),
-			)
+			.where(conditionsWithFilter)
 			.groupBy(transactions.categoryId, categories.name, categories.color)
 			.orderBy(desc(sql`SUM(${transactions.amount})`));
 

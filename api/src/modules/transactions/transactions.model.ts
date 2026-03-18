@@ -196,3 +196,5 @@ export class TransactionModel {
 		return deleted;
 	}
 }
+
+export const transactionModel = new TransactionModel();

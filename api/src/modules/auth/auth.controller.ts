@@ -93,4 +93,47 @@ export class AuthController {
 		reply.clearCookie("token", { path: "/" });
 		return reply.send({ message: "Logout realizado" });
 	};
+
+	updateMe = async (request: FastifyRequest, reply: FastifyReply) => {
+		await catchError(request.jwtVerify());
+
+		const { sub } = request.user as { sub: string };
+		const body = request.body as { name?: string };
+
+		if (!body.name) {
+			throw new AppError("Nome é obrigatório", 400);
+		}
+
+		const [err, user] = await catchError(
+			this.authModel.updateName(sub, body.name),
+		);
+		if (err) throw new AppError("Erro ao atualizar perfil", 500);
+
+		return reply.send({ user });
+	};
+
+	changePassword = async (request: FastifyRequest, reply: FastifyReply) => {
+		await catchError(request.jwtVerify());
+
+		const { sub } = request.user as { sub: string };
+		const body = request.body as { currentPassword: string; newPassword: string };
+
+		const [errUser, user] = await catchError(this.authModel.findByIdWithPassword(sub));
+		if (errUser || !user) throw new AppError("Usuário não encontrado", 404);
+
+		const [errVerify, isValid] = await catchError(
+			this.authModel.verifyPassword(body.currentPassword, user.password),
+		);
+		if (errVerify) throw new AppError("Erro ao verificar senha", 500);
+		if (!isValid) {
+			throw new AppError("Senha atual incorreta", 401);
+		}
+
+		const [errUpdate] = await catchError(
+			this.authModel.updatePassword(sub, body.newPassword),
+		);
+		if (errUpdate) throw new AppError("Erro ao alterar senha", 500);
+
+		return reply.send({ message: "Senha alterada com sucesso" });
+	};
 }
