@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#0F1117",
-        "foregroundImage": "./assets/android-icon-foreground.png"
+        "foregroundImage": "./assets/adaptive-icon.png"
       },
       "package": "com.financeapp.mobile"
     },
@@ -34,6 +34,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c21f91aa-d8be-4fb5-9fd5-964ca82f3a7b"
+      }
+    },
+    "owner": "andreluke"
   }
 }
