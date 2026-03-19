@@ -7,11 +7,11 @@ import { PaymentMethodModel } from "../payment-methods/payment-methods.model";
 import { TransactionModel } from "../transactions/transactions.model";
 
 export class GoalsModel {
-	constructor(
-		private readonly categoryModel = new CategoryModel(),
-		private readonly paymentMethodModel = new PaymentMethodModel(),
-		private readonly transactionModel = new TransactionModel(),
-	) {}
+  constructor(
+    private readonly categoryModel = new CategoryModel(),
+    private readonly paymentMethodModel = new PaymentMethodModel(),
+    private readonly transactionModel = new TransactionModel(),
+  ) {}
   async findAll(userId: string) {
     const result = await db
       .select({
@@ -44,7 +44,7 @@ export class GoalsModel {
         targetAmount: goals.targetAmount,
         currentAmount: goals.currentAmount,
         deadline: goals.deadline,
-		categoryId: goals.categoryId,
+        categoryId: goals.categoryId,
         icon: goals.icon,
         color: goals.color,
         isActive: goals.isActive,
@@ -116,7 +116,10 @@ export class GoalsModel {
       categoryId = category.id;
     }
 
-    let paymentMethod = await this.paymentMethodModel.findByName("Interno", userId);
+    let paymentMethod = await this.paymentMethodModel.findByName(
+      "Interno",
+      userId,
+    );
     if (!paymentMethod) {
       paymentMethod = await this.paymentMethodModel.createMethod(userId, {
         name: "Interno",
@@ -134,13 +137,14 @@ export class GoalsModel {
 
     const newAmount = Number(goal.currentAmount) + amount;
 
-    await db
+    const [category] = await db
       .update(goals)
       .set({
         currentAmount: newAmount.toString(),
         categoryId: categoryId,
       })
-      .where(eq(goals.id, id));
+      .where(eq(goals.id, id))
+      .returning();
 
     const [contribution] = await db
       .insert(goalContributions)
@@ -152,7 +156,14 @@ export class GoalsModel {
       })
       .returning();
 
-    return { contribution, goal: { ...goal, currentAmount: newAmount.toString() } };
+    return {
+      contribution,
+      goal: {
+        ...goal,
+        categoryId: category.categoryId,
+        currentAmount: newAmount.toString(),
+      },
+    };
   }
 
   async withdraw(userId: string, id: string, amount: number) {
@@ -176,7 +187,10 @@ export class GoalsModel {
       categoryId = category.id;
     }
 
-    let paymentMethod = await this.paymentMethodModel.findByName("Interno", userId);
+    let paymentMethod = await this.paymentMethodModel.findByName(
+      "Interno",
+      userId,
+    );
     if (!paymentMethod) {
       paymentMethod = await this.paymentMethodModel.createMethod(userId, {
         name: "Interno",
@@ -211,7 +225,10 @@ export class GoalsModel {
       })
       .returning();
 
-    return { withdrawal, goal: { ...goal, currentAmount: newAmount.toString() } };
+    return {
+      withdrawal,
+      goal: { ...goal, currentAmount: newAmount.toString() },
+    };
   }
 
   async findContributionsByGoalId(goalId: string) {
@@ -243,7 +260,10 @@ export class GoalsModel {
     const goal = await this.findById(contribution.goalId);
     if (!goal || goal.userId !== userId) return null;
 
-    await this.transactionModel.deleteTransaction(contribution.transactionId, userId);
+    await this.transactionModel.deleteTransaction(
+      contribution.transactionId,
+      userId,
+    );
 
     const newAmount = Number(goal.currentAmount) - Number(contribution.amount);
     await db
@@ -255,7 +275,10 @@ export class GoalsModel {
       .delete(goalContributions)
       .where(eq(goalContributions.id, contributionId));
 
-    return { removed: contribution, goal: { ...goal, currentAmount: newAmount.toString() } };
+    return {
+      removed: contribution,
+      goal: { ...goal, currentAmount: newAmount.toString() },
+    };
   }
 
   async delete(id: string) {

@@ -354,7 +354,7 @@ describe("Recurring Transactions Module", () => {
 				},
 			});
 
-			expect(response.statusCode).toBe(500);
+			expect(response.statusCode).toBe(400);
 		});
 
 		it("should require dayOfMonth", async () => {

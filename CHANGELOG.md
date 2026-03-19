@@ -132,6 +132,69 @@ Todas as mudanças são aplicadas em ambas as plataformas (web e API), exceto on
 
 ---
 
+### Infraestrutura de Testes
+
+#### MSW (Mock Service Worker)
+
+- Instalado e configurado MSW v2.12.13 no projeto web
+- Criado servidor MSW para interceptação de requisições HTTP
+- Handlers mock para endpoints: budgets, goals, categories, transactions, subcategories
+
+#### Testes API (Vitest + PostgreSQL)
+
+**Banco de Dados de Teste**: `postgres://test:test@localhost:5433/financeapp_test`
+
+**Docker Compose para Testes**:
+```bash
+# Iniciar banco de testes
+pnpm docker:test:up
+
+# Rodar migrations
+pnpm drizzle:migrate:test
+
+# Rodar testes
+pnpm test:ci
+
+# Parar banco de testes
+pnpm docker:test:down
+
+# Ou tudo de uma vez:
+pnpm test:all
+```
+
+Arquivos de teste:
+- `api/tests/auth.test.ts` - Testes de autenticação
+- `api/tests/transactions.test.ts` - Testes de transações
+- `api/tests/categories.test.ts` - Testes de categorias
+- `api/tests/summary.test.ts` - Testes de resumo
+- `api/tests/payment-methods.test.ts` - Testes de métodos de pagamento
+- `api/tests/recurring.test.ts` - Testes de transações recorrentes
+- `api/tests/budgets.test.ts` - Testes de orçamentos (novo)
+- `api/tests/goals.test.ts` - Testes de metas (novo)
+- `api/tests/subcategories.test.ts` - Testes de subcategorias (novo)
+
+#### Testes Web (Vitest + React Testing Library + MSW)
+
+**Configuração**:
+- Environment: happy-dom
+- Setup files: `src/test/setup.ts`, `src/test/mocks/server.ts`
+- Mocks de API via MSW em `src/test/mocks/handlers.ts`
+
+Arquivos de teste:
+- `src/test/hooks/useBudgets.test.tsx` - Testes dos hooks de orçamentos (novo)
+- `src/test/hooks/useGoals.test.tsx` - Testes dos hooks de metas (novo)
+- `src/test/components/BudgetCard.test.tsx` - Testes do componente BudgetCard (novo)
+- `src/test/components/GoalCard.test.tsx` - Testes do componente GoalCard (novo)
+- `src/pages/DashboardPage.test.tsx` - Testes da página de dashboard (atualizado)
+- `src/pages/RecurringPage.test.tsx` - Testes da página de recorrências (atualizado)
+- `src/pages/TransfersPage.test.tsx` - Testes da página de transferências (atualizado)
+
+**Estatísticas de Testes**:
+- Total de arquivos de teste: 7
+- Total de testes: 69 (todos passando)
+
+---
+
 ## Banco de Dados
 
 ### Migrations

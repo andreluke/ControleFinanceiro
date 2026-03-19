@@ -42,6 +42,7 @@ export async function buildApp() {
 				description: "API para controle financeiro pessoal",
 			},
 			servers: [
+				{ url: env.API_URL, description: "Servidor de produção"},
 				{ url: "http://localhost:3000", description: "Servidor local" },
 			],
 			components: {

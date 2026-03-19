@@ -7,7 +7,7 @@ import { AuthModel } from "../src/modules/auth/auth.model";
 
 describe("Auth Module", () => {
 	const authModel = new AuthModel();
-	let app: any;
+  let app: Awaited<ReturnType<typeof buildApp>>
 
 	beforeAll(async () => {
 		app = await buildApp();
@@ -25,6 +25,7 @@ describe("Auth Module", () => {
 			expect(user).toBeDefined();
 			expect(user.email).toBe(email);
 			expect(user.name).toBe("Test User");
+			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
 			expect((user as any).password).toBeUndefined(); // Should not return password
 		});
 
