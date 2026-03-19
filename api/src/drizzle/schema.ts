@@ -21,9 +21,7 @@ export const frequencyEnum = pgEnum("frequency_type", [
 	"custom",
 ]);
 
-export const budgetPeriodEnum = pgEnum("budget_period", [
-	"monthly",
-]);
+export const budgetPeriodEnum = pgEnum("budget_period", ["monthly"]);
 
 export const users = pgTable("users", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -140,7 +138,9 @@ export const goals = pgTable("goals", {
 	name: text("name").notNull(),
 	description: text("description"),
 	targetAmount: numeric("target_amount", { precision: 12, scale: 2 }).notNull(),
-	currentAmount: numeric("current_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+	currentAmount: numeric("current_amount", { precision: 12, scale: 2 })
+		.notNull()
+		.default("0"),
 	deadline: timestamp("deadline"),
 	icon: text("icon"),
 	color: text("color").notNull().default("#3B82F6"),

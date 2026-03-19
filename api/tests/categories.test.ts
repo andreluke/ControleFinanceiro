@@ -6,7 +6,7 @@ import { CategoryModel } from "../src/modules/categories/categories.model";
 describe("Categories Module", () => {
 	const categoryModel = new CategoryModel();
 	const authModel = new AuthModel();
-  	let app: Awaited<ReturnType<typeof buildApp>>
+	let app: Awaited<ReturnType<typeof buildApp>>;
 	let token: string;
 	let userId: string;
 

@@ -8,7 +8,9 @@ export async function registerSummaryRoutes(app: FastifyInstance) {
 
 	app.addHook("onRequest", async (request, reply) => {
 		const path = request.url.split("?")[0];
-		const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(route + "/"));
+		const isPublicRoute = PUBLIC_ROUTES.some(
+			(route) => path === route || path.startsWith(`${route}/`),
+		);
 		if (isPublicRoute) return;
 
 		// Only apply JWT verification to /summary routes
@@ -74,5 +76,29 @@ export async function registerSummaryRoutes(app: FastifyInstance) {
 			},
 		},
 		summaryController.getByCategorySummary,
+	);
+
+	app.get(
+		"/summary/forecast",
+		{
+			schema: {
+				description: "Retorna a previsão de fechamento do mês",
+				tags: ["Summary"],
+				security: [{ bearerAuth: [] }],
+				querystring: {
+					type: "object",
+					properties: {
+						month: {
+							type: "integer",
+							minimum: 1,
+							maximum: 12,
+							description: "Mês (1-12)",
+						},
+						year: { type: "integer", minimum: 2020, description: "Ano" },
+					},
+				},
+			},
+		},
+		summaryController.getForecast,
 	);
 }

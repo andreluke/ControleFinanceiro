@@ -10,10 +10,9 @@ export const createSubcategorySchema = z.object({
 	categoryId: z.string().uuid("ID da categoria inválido"),
 });
 
-
 export const subcategorySchema = z.object({
 	id: z.string().uuid(),
-		name: z.string().min(1, "Nome é obrigatório").max(100),
+	name: z.string().min(1, "Nome é obrigatório").max(100),
 	color: z
 		.string()
 		.regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inválida")

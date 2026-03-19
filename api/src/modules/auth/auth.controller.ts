@@ -144,9 +144,14 @@ export class AuthController {
 		await catchError(request.jwtVerify());
 
 		const { sub } = request.user as { sub: string };
-		const body = request.body as { currentPassword: string; newPassword: string };
+		const body = request.body as {
+			currentPassword: string;
+			newPassword: string;
+		};
 
-		const [errUser, user] = await catchError(this.authModel.findByIdWithPassword(sub));
+		const [errUser, user] = await catchError(
+			this.authModel.findByIdWithPassword(sub),
+		);
 		if (errUser || !user) throw new AppError("Usuário não encontrado", 404);
 
 		const [errVerify, isValid] = await catchError(
@@ -171,10 +176,7 @@ export class AuthController {
 		const { sub, email } = request.user as { sub: string; email: string };
 
 		const [errToken, token] = await catchError(
-			reply.jwtSign(
-				{ sub, email },
-				{ expiresIn: "7d" },
-			),
+			reply.jwtSign({ sub, email }, { expiresIn: "7d" }),
 		);
 		if (errToken) throw new AppError("Erro ao gerar token", 500);
 

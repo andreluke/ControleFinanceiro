@@ -7,8 +7,8 @@ import Fastify from "fastify";
 import { errorHandler } from "../errors/errorHandler";
 import { registerBudgetsRoutes } from "../modules/budgets/budgets.routes";
 import { registerGoalsRoutes } from "../modules/goals/goals.routes";
-import { registerSubcategoriesRoutes } from "../modules/subcategories/subcategories.routes";
 import { registerSeedDashboardRoutes } from "../modules/seed/dashboard.seed.routes";
+import { registerSubcategoriesRoutes } from "../modules/subcategories/subcategories.routes";
 import { env } from "../settings/env";
 import { registerRoutes } from "./routes";
 
@@ -42,7 +42,7 @@ export async function buildApp() {
 				description: "API para controle financeiro pessoal",
 			},
 			servers: [
-				{ url: env.API_URL, description: "Servidor de produção"},
+				{ url: env.API_URL, description: "Servidor de produção" },
 				{ url: "http://localhost:3000", description: "Servidor local" },
 			],
 			components: {

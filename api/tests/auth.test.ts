@@ -7,7 +7,7 @@ import { AuthModel } from "../src/modules/auth/auth.model";
 
 describe("Auth Module", () => {
 	const authModel = new AuthModel();
-  let app: Awaited<ReturnType<typeof buildApp>>
+	let app: Awaited<ReturnType<typeof buildApp>>;
 
 	beforeAll(async () => {
 		app = await buildApp();

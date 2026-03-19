@@ -15,8 +15,16 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 					required: ["name", "email", "password"],
 					properties: {
 						name: { type: "string", description: "Nome do usuário" },
-						email: { type: "string", format: "email", description: "E-mail do usuário" },
-						password: { type: "string", minLength: 6, description: "Senha do usuário" },
+						email: {
+							type: "string",
+							format: "email",
+							description: "E-mail do usuário",
+						},
+						password: {
+							type: "string",
+							minLength: 6,
+							description: "Senha do usuário",
+						},
 					},
 				},
 			},
@@ -34,9 +42,16 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 					type: "object",
 					required: ["email", "password"],
 					properties: {
-						email: { type: "string", format: "email", description: "E-mail do usuário" },
+						email: {
+							type: "string",
+							format: "email",
+							description: "E-mail do usuário",
+						},
 						password: { type: "string", description: "Senha do usuário" },
-						rememberMe: { type: "boolean", description: "Manter login por 30 dias" },
+						rememberMe: {
+							type: "boolean",
+							description: "Manter login por 30 dias",
+						},
 					},
 				},
 			},

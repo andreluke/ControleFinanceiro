@@ -3,9 +3,9 @@ import { AppError } from "../../errors/AppError";
 import { catchError } from "../../utils/catchError";
 import { GoalsModel } from "./goals.model";
 import {
+	contributeGoalSchema,
 	createGoalSchema,
 	updateGoalSchema,
-	contributeGoalSchema,
 	withdrawGoalSchema,
 } from "./goals.schema";
 
@@ -91,7 +91,7 @@ export class GoalsController {
 		if (error) {
 			throw new AppError("Erro ao buscar meta", 500);
 		}
-		
+
 		if (!existing) {
 			throw new AppError("Meta não encontrada", 404);
 		}

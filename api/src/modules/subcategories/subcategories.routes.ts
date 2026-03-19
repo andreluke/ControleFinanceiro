@@ -8,7 +8,9 @@ export async function registerSubcategoriesRoutes(app: FastifyInstance) {
 
 	app.addHook("onRequest", async (request, reply) => {
 		const path = request.url.split("?")[0];
-		const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(`${route}/`));
+		const isPublicRoute = PUBLIC_ROUTES.some(
+			(route) => path === route || path.startsWith(`${route}/`),
+		);
 		if (isPublicRoute) return;
 
 		// Only apply JWT verification to /subcategories routes

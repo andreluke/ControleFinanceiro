@@ -8,7 +8,9 @@ export async function registerRecurringRoutes(app: FastifyInstance) {
 
 	app.addHook("onRequest", async (request, reply) => {
 		const path = request.url.split("?")[0];
-		const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(`${route}/`));
+		const isPublicRoute = PUBLIC_ROUTES.some(
+			(route) => path === route || path.startsWith(`${route}/`),
+		);
 		if (isPublicRoute) return;
 
 		// Only apply JWT verification to /recurring routes
@@ -59,38 +61,37 @@ export async function registerRecurringRoutes(app: FastifyInstance) {
 
 	app.post(
 		"/recurring",
-	{
-		schema: {
-			description: "Cria uma nova transação recorrente",
-			tags: ["Recurring"],
-			security: [{ bearerAuth: [] }],
-			body: {
-				type: "object",
-				required: ["description", "amount", "type", "startDate", "frequency"],
-				properties: {
-					description: { type: "string" },
-					subDescription: { type: "string" },
-					amount: { type: "number" },
-					type: { type: "string", enum: ["income", "expense"] },
-					startDate: { type: "string" },
-					endDate: { type: "string" },
-					frequency: {
-						type: "string",
-						enum: ["daily", "weekly", "monthly", "yearly", "custom"],
+		{
+			schema: {
+				description: "Cria uma nova transação recorrente",
+				tags: ["Recurring"],
+				security: [{ bearerAuth: [] }],
+				body: {
+					type: "object",
+					required: ["description", "amount", "type", "startDate", "frequency"],
+					properties: {
+						description: { type: "string" },
+						subDescription: { type: "string" },
+						amount: { type: "number" },
+						type: { type: "string", enum: ["income", "expense"] },
+						startDate: { type: "string" },
+						endDate: { type: "string" },
+						frequency: {
+							type: "string",
+							enum: ["daily", "weekly", "monthly", "yearly", "custom"],
+						},
+						customIntervalDays: { type: "integer" },
+						dayOfMonth: { type: "integer" },
+						dayOfWeek: { type: "integer" },
+						categoryId: { type: "string", format: "uuid" },
+						subcategoryId: { type: "string", format: "uuid" },
+						paymentMethodId: { type: "string", format: "uuid" },
 					},
-					customIntervalDays: { type: "integer" },
-					dayOfMonth: { type: "integer" },
-					dayOfWeek: { type: "integer" },
-					categoryId: { type: "string", format: "uuid" },
-					subcategoryId: { type: "string", format: "uuid" },
-					paymentMethodId: { type: "string", format: "uuid" },
 				},
 			},
 		},
-	},
-	controller.createRecurringTransaction,
-);
-
+		controller.createRecurringTransaction,
+	);
 
 	app.put(
 		"/recurring/:id",
@@ -105,32 +106,31 @@ export async function registerRecurringRoutes(app: FastifyInstance) {
 						id: { type: "string", format: "uuid" },
 					},
 				},
-			body: {
-				type: "object",
-				properties: {
-					description: { type: "string" },
-					subDescription: { type: "string" },
-					amount: { type: "number" },
-					type: { type: "string", enum: ["income", "expense"] },
-					startDate: { type: "string" },
-					endDate: { type: "string" },
-					frequency: {
-						type: "string",
-						enum: ["daily", "weekly", "monthly", "yearly", "custom"],
+				body: {
+					type: "object",
+					properties: {
+						description: { type: "string" },
+						subDescription: { type: "string" },
+						amount: { type: "number" },
+						type: { type: "string", enum: ["income", "expense"] },
+						startDate: { type: "string" },
+						endDate: { type: "string" },
+						frequency: {
+							type: "string",
+							enum: ["daily", "weekly", "monthly", "yearly", "custom"],
+						},
+						customIntervalDays: { type: "integer" },
+						dayOfMonth: { type: "integer" },
+						dayOfWeek: { type: "integer" },
+						categoryId: { type: "string", format: "uuid" },
+						subcategoryId: { type: "string", format: "uuid" },
+						paymentMethodId: { type: "string", format: "uuid" },
 					},
-					customIntervalDays: { type: "integer" },
-					dayOfMonth: { type: "integer" },
-					dayOfWeek: { type: "integer" },
-					categoryId: { type: "string", format: "uuid" },
-					subcategoryId: { type: "string", format: "uuid" },
-					paymentMethodId: { type: "string", format: "uuid" },
 				},
 			},
 		},
-	},
-	controller.updateRecurringTransaction,
-);
-
+		controller.updateRecurringTransaction,
+	);
 
 	app.patch(
 		"/recurring/:id/toggle",
