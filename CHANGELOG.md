@@ -105,6 +105,25 @@ Todas as mudanças são aplicadas em ambas as plataformas (web e API), exceto on
   - Descrição clara sobre como o valor é calculado
   - Indica se é valor base ou total
 
+#### Feature 1: Previsao de Fechamento do Mes
+
+- **Endpoint `GET /summary/forecast`**: Projeta receitas e despesas ate o final do mes
+- **Calculo de Projecao**:
+  - Considera transacoes existentes no mes atual
+  - Inclui recorrentes ativas ate o fim do mes
+  - Calcula saldo projetado automaticamente
+- **Indicador de Confianca**:
+  - `high`: 3+ meses de historico
+  - `low`: menos de 3 meses de historico
+- **Transacoes Recorrentes Futuras**:
+  - Lista proximas recorrentes ate o fim do mes
+  - Exibe data prevista, descricao e valor
+- **Card no Dashboard**:
+  - Componente `ForecastCard` com visualizacao da previsao
+  - Progress bars para receitas e despesas
+  - Lista das proximas transacoes recorrentes
+  - Indicador de confianca da previsao
+
 ---
 
 ### Melhorias Internas
@@ -114,6 +133,9 @@ Todas as mudanças são aplicadas em ambas as plataformas (web e API), exceto on
 - Adicionado método `findByName` em `PaymentMethodModel` para busca por nome
 - Refatorado `SummaryModel` com método privado `getMetaCategoryId` para reutilização de lógica
 - Adicionado método `updateLastGeneratedAt` em `RecurringTransactionModel`
+- Novo endpoint GET `/summary/forecast` para previsão de fechamento do mês
+- Função `getNextOccurrences` para calcular datas futuras de recorrências
+- Função `getHistoricalAverage` para determinar confiança da previsão
 - Novo endpoint PATCH `/budgets/:id/toggle` para ativar/desativar orçamentos recorrentes
 - Métodos `findRecurringByUser` e `ensureRecurringBudgetsExist` em `BudgetsModel`
 - Métodos `getSubcategoriesTotal` e `recalculateParentBudget` em `BudgetsModel`
@@ -124,6 +146,10 @@ Todas as mudanças são aplicadas em ambas as plataformas (web e API), exceto on
 #### Frontend
 
 - Hook `useToggleBudgetActive` adicionado em `useBudgets`
+- Hook `useForecast` adicionado em `useSummary`
+- Tipos `Forecast` e `RecurringUpcoming` em `types/summary`
+- Método `getForecast` em `services/summary`
+- Componente `ForecastCard` criado no dashboard
 - Componente `Switch` criado usando Radix UI
 - Badge "Recorrente" e "Calculado" nos cards de orçamentos
 - Indicadores visuais para orçamentos desativados (opacidade reduzida)
