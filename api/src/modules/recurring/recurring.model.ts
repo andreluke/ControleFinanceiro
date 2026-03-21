@@ -161,30 +161,22 @@ export class RecurringTransactionModel {
 		userId: string,
 		data: UpdateRecurringTransactionInput,
 	) {
-		const updateData: Record<string, unknown> = { ...data };
+		const updateData: Record<string, unknown> = {};
 
-		if (data.amount !== undefined) {
-			updateData.amount = data.amount.toString();
-		}
-
-		if (data.dayOfMonth !== undefined) {
-			updateData.dayOfMonth = data.dayOfMonth.toString();
-		}
-
-		if (data.dayOfWeek !== undefined) {
-			updateData.dayOfWeek = data.dayOfWeek.toString();
-		}
-
-		if (data.customIntervalDays !== undefined) {
-			updateData.customIntervalDays = data.customIntervalDays.toString();
-		}
-
-		if (data.startDate !== undefined) {
-			updateData.startDate = new Date(data.startDate);
-		}
-
+		if (data.description !== undefined) updateData.description = data.description;
+		if (data.subDescription !== undefined) updateData.subDescription = data.subDescription;
+		if (data.amount !== undefined) updateData.amount = data.amount.toString();
+		if (data.type !== undefined) updateData.type = data.type;
+		if (data.categoryId !== undefined) updateData.categoryId = data.categoryId || null;
+		if (data.subcategoryId !== undefined) updateData.subcategoryId = data.subcategoryId || null;
+		if (data.paymentMethodId !== undefined) updateData.paymentMethodId = data.paymentMethodId || null;
+		if (data.frequency !== undefined) updateData.frequency = data.frequency;
+		if (data.dayOfMonth !== undefined) updateData.dayOfMonth = data.dayOfMonth.toString();
+		if (data.dayOfWeek !== undefined) updateData.dayOfWeek = data.dayOfWeek?.toString() || null;
+		if (data.customIntervalDays !== undefined) updateData.customIntervalDays = data.customIntervalDays?.toString() || null;
+		if (data.startDate !== undefined) updateData.startDate = new Date(data.startDate);
 		if (data.endDate !== undefined) {
-			updateData.endDate = new Date(data.endDate);
+			updateData.endDate = data.endDate ? new Date(data.endDate) : null;
 		}
 
 		updateData.updatedAt = new Date();
