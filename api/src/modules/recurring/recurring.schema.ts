@@ -7,12 +7,9 @@ const recurringTransactionBaseSchema = z.object({
 	type: z.enum(["income", "expense"], {
 		errorMap: () => ({ message: "O tipo deve ser income ou expense" }),
 	}),
-	categoryId: z.string().uuid("ID de categoria inválido").optional(),
-	subcategoryId: z.string().uuid("ID de subcategoria inválido").optional(),
-	paymentMethodId: z
-		.string()
-		.uuid("ID de método de pagamento inválido")
-		.optional(),
+	categoryId: z.string().optional().transform((val) => (val === "" || val === "none" ? undefined : val)),
+	subcategoryId: z.string().optional().transform((val) => (val === "" || val === "none" ? undefined : val)),
+	paymentMethodId: z.string().optional().transform((val) => (val === "" || val === "none" ? undefined : val)),
 	frequency: z.enum(["daily", "weekly", "monthly", "yearly", "custom"], {
 		errorMap: () => ({ message: "Frequência inválida" }),
 	}),
@@ -31,8 +28,15 @@ const recurringTransactionBaseSchema = z.object({
 	}),
 	endDate: z
 		.string()
-		.datetime({ message: "Data final deve ser ISO 8601 válida" })
-		.optional(),
+		.refine((val) => !val || !Number.isNaN(Date.parse(val)), {
+			message: "Data final deve ser ISO 8601 válida",
+		})
+		.optional()
+		.nullable()
+		.transform((val) => {
+			if (val === "" || val === null) return undefined;
+			return val;
+		}),
 });
 
 export const createRecurringTransactionSchema =
