@@ -119,7 +119,7 @@ export class GoalsController {
 			}).catch((e) => console.error("[notification] goal trigger failed:", e));
 		}
 
-		return reply.send({ goal: result?.goal });
+		return reply.send({ goal: result?.goal, contribution: result?.contribution });
 	};
 
 	withdraw = async (req: FastifyRequest, reply: FastifyReply) => {

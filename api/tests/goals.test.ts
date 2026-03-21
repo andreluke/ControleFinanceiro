@@ -474,9 +474,9 @@ describe("Goals API Routes", () => {
 		expect(response.statusCode).toBe(200);
 		const body = JSON.parse(response.body);
 		expect(body.goal).toBeDefined();
-		expect(body.goal.contribution).toBeDefined();
-		expect(body.goal.contribution.amount).toBe("500.00");
-		expect(Number(body.goal.goal.currentAmount)).toBeGreaterThan(0);
+		expect(body.contribution).toBeDefined();
+		expect(body.contribution.amount).toBe("500.00");
+		expect(Number(body.goal.currentAmount)).toBeGreaterThan(0);
 	});
 
 	it("POST /goals/:id/withdraw - deve sacar de meta", async () => {
