@@ -2,7 +2,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { AppError } from "../../errors/AppError";
 import { catchError } from "../../utils/catchError";
 import { SummaryModel } from "./summary.model";
-import { summaryQuerySchema } from "./summary.schema";
+import { forecastQuerySchema, summaryQuerySchema } from "./summary.schema";
 
 export class SummaryController {
 	constructor(private readonly summaryModel = new SummaryModel()) {}
@@ -43,5 +43,17 @@ export class SummaryController {
 		if (err) throw new AppError("Erro ao obter resumo por categoria", 500);
 
 		return reply.send(byCategory);
+	};
+
+	getForecast = async (request: FastifyRequest, reply: FastifyReply) => {
+		const { sub: userId } = request.user as { sub: string };
+		const { month, year } = forecastQuerySchema.parse(request.query);
+
+		const [err, forecast] = await catchError(
+			this.summaryModel.getForecast(userId, month, year),
+		);
+		if (err) throw new AppError("Erro ao obter previsão", 500);
+
+		return reply.send(forecast);
 	};
 }

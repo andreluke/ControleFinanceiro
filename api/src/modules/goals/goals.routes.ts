@@ -6,7 +6,8 @@ export async function registerGoalsRoutes(app: FastifyInstance) {
 
 	app.addHook("onRequest", async (request, reply) => {
 		const path = request.url.split("?")[0];
-		const isPublicRoute = path === "/health" || path === "/docs" || path.startsWith("/docs/");
+		const isPublicRoute =
+			path === "/health" || path === "/docs" || path.startsWith("/docs/");
 		if (isPublicRoute) return;
 
 		if (!path.startsWith("/goals")) return;

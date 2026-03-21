@@ -7,7 +7,7 @@ describe("Summary Module", () => {
 	const transactionModel = new TransactionModel();
 	const authModel = new AuthModel();
 
-	let app: any;
+	let app: Awaited<ReturnType<typeof buildApp>>;
 	let token: string;
 	let userId: string;
 

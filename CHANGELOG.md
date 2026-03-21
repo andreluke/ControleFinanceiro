@@ -105,6 +105,61 @@ Todas as mudanças são aplicadas em ambas as plataformas (web e API), exceto on
   - Descrição clara sobre como o valor é calculado
   - Indica se é valor base ou total
 
+#### Feature 1: Previsao de Fechamento do Mes
+
+- **Endpoint `GET /summary/forecast`**: Projeta receitas e despesas ate o final do mes
+- **Calculo de Projecao**:
+  - Considera transacoes existentes no mes atual
+  - Inclui recorrentes ativas ate o fim do mes
+  - Calcula saldo projetado automaticamente
+- **Indicador de Confianca**:
+  - `high`: 3+ meses de historico
+  - `low`: menos de 3 meses de historico
+- **Transacoes Recorrentes Futuras**:
+  - Lista proximas recorrentes ate o fim do mes
+  - Exibe data prevista, descricao e valor
+- **Card no Dashboard**:
+  - Componente `ForecastCard` com visualizacao da previsao
+  - Progress bars para receitas e despesas
+  - Lista das proximas transacoes recorrentes
+  - Indicador de confianca da previsao
+
+#### Feature 2: Notificacoes de Orcamento e Metas
+
+- **Tabela `notifications`**:
+  - Armazena notificacoes geradas automaticamente
+  - Tipos: `budget_warning`, `budget_exceeded`, `goal_milestone`
+  - Campos: `entity_type`, `entity_id` para navegacao
+  - Deduplicacao: nao cria notificacao repetida em 24h
+
+- **Tabela `notification_settings`**:
+  - Configuracoes por usuario
+  - `budget_warning_pct`: percentual para alerta (default: 80%)
+  - `budget_exceeded`: ativar/desativar alertas de orcamento excedido
+  - `goal_milestones`: ativar/desativar marcos de meta
+  - `email_enabled`, `email_address`: configuracoes de email (reservado para feature 5)
+
+- **Endpoints API**:
+  - `GET /notifications`: lista paginada com filtros
+  - `GET /notifications/unread-count`: contagem de nao lidas
+  - `PATCH /notifications/:id/read`: marca como lida
+  - `PATCH /notifications/read-all`: marca todas como lidas
+  - `DELETE /notifications/:id`: exclui notificacao
+  - `GET /notifications/settings`: busca configuracoes
+  - `PUT /notifications/settings`: atualiza configuracoes
+
+- **Gatilhos de Notificacao**:
+  - `triggerBudgetNotification`:disparado ao criar/atualizar transacao
+  - `triggerGoalMilestoneNotification`: disparado ao contribuir em meta
+  - Verifica configuracoes do usuario antes de criar
+  - Marcos de meta: 50%, 75%, 100%
+
+- **Interface Frontend**:
+  - `NotificationBell`: icone de sino no sidebar com badge de contagem
+  - Dropdown com ultimas 10 notificacoes
+  - Acoes rapidas: marcar como lida, excluir
+  - `NotificationsPage`: pagina completa com filtros e lista
+
 ---
 
 ### Melhorias Internas
@@ -114,21 +169,100 @@ Todas as mudanças são aplicadas em ambas as plataformas (web e API), exceto on
 - Adicionado método `findByName` em `PaymentMethodModel` para busca por nome
 - Refatorado `SummaryModel` com método privado `getMetaCategoryId` para reutilização de lógica
 - Adicionado método `updateLastGeneratedAt` em `RecurringTransactionModel`
+- Novo endpoint GET `/summary/forecast` para previsão de fechamento do mês
+- Função `getNextOccurrences` para calcular datas futuras de recorrências
+- Função `getHistoricalAverage` para determinar confiança da previsão
 - Novo endpoint PATCH `/budgets/:id/toggle` para ativar/desativar orçamentos recorrentes
 - Métodos `findRecurringByUser` e `ensureRecurringBudgetsExist` em `BudgetsModel`
 - Métodos `getSubcategoriesTotal` e `recalculateParentBudget` em `BudgetsModel`
 - Atualizado `updateBudgetSchema` com campo `baseAmount`
 - Atualizado `createBudgetSchema` com campo `baseAmount`
 - Lógica em `create` considera subcategorias existentes ao calcular amount total
+- Novo modulo `notifications` com modelos, schemas, controller e rotas
+- Funcoes `triggerBudgetNotification` e `triggerGoalMilestoneNotification` em `notificationTrigger.ts`
+- Integracao de gatilhos nos controllers de `transactions` e `goals`
 
 #### Frontend
 
 - Hook `useToggleBudgetActive` adicionado em `useBudgets`
+- Hook `useForecast` adicionado em `useSummary`
+- Tipos `Forecast` e `RecurringUpcoming` em `types/summary`
+- Método `getForecast` em `services/summary`
+- Componente `ForecastCard` criado no dashboard
+- Tipos `Notification`, `NotificationSettings` em `types/notification`
+- Hooks `useNotifications`, `useUnreadCount`, `useMarkAsRead`, `useMarkAllAsRead`, `useDeleteNotification` em `hooks/useNotifications`
+- Hooks `useNotificationSettings`, `useUpdateNotificationSettings` em `hooks/useNotifications`
+- Método `list`, `getUnreadCount`, `markAsRead`, `markAllAsRead`, `delete`, `getSettings`, `updateSettings` em `services/notification`
+- Componente `NotificationBell` criado no sidebar com dropdown
+- Página `NotificationsPage` com lista completa e filtros
 - Componente `Switch` criado usando Radix UI
 - Badge "Recorrente" e "Calculado" nos cards de orçamentos
 - Indicadores visuais para orçamentos desativados (opacidade reduzida)
 - Exibição detalhada: Base + Subcategorias = Total
 - Lógica condicional no modal para edição de base vs total
+
+---
+
+### Infraestrutura de Testes
+
+#### MSW (Mock Service Worker)
+
+- Instalado e configurado MSW v2.12.13 no projeto web
+- Criado servidor MSW para interceptação de requisições HTTP
+- Handlers mock para endpoints: budgets, goals, categories, transactions, subcategories
+
+#### Testes API (Vitest + PostgreSQL)
+
+**Banco de Dados de Teste**: `postgres://test:test@localhost:5433/financeapp_test`
+
+**Docker Compose para Testes**:
+```bash
+# Iniciar banco de testes
+pnpm docker:test:up
+
+# Rodar migrations
+pnpm drizzle:migrate:test
+
+# Rodar testes
+pnpm test:ci
+
+# Parar banco de testes
+pnpm docker:test:down
+
+# Ou tudo de uma vez:
+pnpm test:all
+```
+
+Arquivos de teste:
+- `api/tests/auth.test.ts` - Testes de autenticação
+- `api/tests/transactions.test.ts` - Testes de transações
+- `api/tests/categories.test.ts` - Testes de categorias
+- `api/tests/summary.test.ts` - Testes de resumo
+- `api/tests/payment-methods.test.ts` - Testes de métodos de pagamento
+- `api/tests/recurring.test.ts` - Testes de transações recorrentes
+- `api/tests/budgets.test.ts` - Testes de orçamentos (novo)
+- `api/tests/goals.test.ts` - Testes de metas (novo)
+- `api/tests/subcategories.test.ts` - Testes de subcategorias (novo)
+
+#### Testes Web (Vitest + React Testing Library + MSW)
+
+**Configuração**:
+- Environment: happy-dom
+- Setup files: `src/test/setup.ts`, `src/test/mocks/server.ts`
+- Mocks de API via MSW em `src/test/mocks/handlers.ts`
+
+Arquivos de teste:
+- `src/test/hooks/useBudgets.test.tsx` - Testes dos hooks de orçamentos (novo)
+- `src/test/hooks/useGoals.test.tsx` - Testes dos hooks de metas (novo)
+- `src/test/components/BudgetCard.test.tsx` - Testes do componente BudgetCard (novo)
+- `src/test/components/GoalCard.test.tsx` - Testes do componente GoalCard (novo)
+- `src/pages/DashboardPage.test.tsx` - Testes da página de dashboard (atualizado)
+- `src/pages/RecurringPage.test.tsx` - Testes da página de recorrências (atualizado)
+- `src/pages/TransfersPage.test.tsx` - Testes da página de transferências (atualizado)
+
+**Estatísticas de Testes**:
+- Total de arquivos de teste: 7
+- Total de testes: 69 (todos passando)
 
 ---
 
@@ -147,6 +281,30 @@ CREATE INDEX idx_budgets_is_recurring ON budgets(is_recurring);
 
 -- 0012_budgets_base_amount.sql
 ALTER TABLE budgets ADD COLUMN base_amount NUMERIC(12, 2);
+
+-- 0013_notifications.sql
+CREATE TABLE notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  body TEXT,
+  entity_type VARCHAR(50),
+  entity_id UUID,
+  is_read BOOLEAN DEFAULT FALSE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE notification_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+  budget_warning_pct INTEGER DEFAULT 80,
+  budget_exceeded BOOLEAN DEFAULT TRUE,
+  goal_milestones BOOLEAN DEFAULT TRUE,
+  email_enabled BOOLEAN DEFAULT FALSE,
+  email_address VARCHAR(255),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
 ```
 
 ### Tabela budgets (campos novos)
@@ -158,8 +316,33 @@ ALTER TABLE budgets ADD COLUMN base_amount NUMERIC(12, 2);
 | `recurring_group_id` | uuid | Agrupa orçamentos recorrentes entre meses |
 | `base_amount` | numeric | Valor base da categoria (sem subcategorias) |
 
+### Tabela notifications (nova)
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `id` | uuid | Identificador único |
+| `user_id` | uuid | Referência ao usuário |
+| `type` | varchar | Tipo: budget_warning, budget_exceeded, goal_milestone |
+| `title` | varchar | Título da notificação |
+| `body` | text | Corpo/descrição |
+| `entity_type` | varchar | Tipo da entidade: budget, goal |
+| `entity_id` | uuid | ID da entidade relacionada |
+| `is_read` | boolean | Se foi lida |
+| `created_at` | timestamp | Data de criação |
+
+### Tabela notification_settings (nova)
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `user_id` | uuid | Referência ao usuário (único) |
+| `budget_warning_pct` | integer | Percentual para alerta (default: 80) |
+| `budget_exceeded` | boolean | Ativar alertas de orçamento excedido |
+| `goal_milestones` | boolean | Ativar marcos de meta |
+| `email_enabled` | boolean | Ativar notificações por email |
+| `email_address` | varchar | Endereço de email |
+
 ---
 
 ## Histórico de Versões
 
-- **[1.x.x]** - Versão atual em desenvolvimento com módulo de Metas e Orçamentos Recorrentes completos
+- **[1.x.x]** - Versão atual em desenvolvimento com Features 1 e 2: Previsão de Fechamento e Notificações

@@ -1,8 +1,11 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { AppError } from "../../errors/AppError";
 import { catchError } from "../../utils/catchError";
+import { triggerBudgetNotification } from "../../utils/notificationTrigger";
 import { CategoryModel } from "../categories/categories.model";
 import { PaymentMethodModel } from "../payment-methods/payment-methods.model";
+import budgetsModel from "../budgets/budgets.model";
+import type { BudgetWithCategory } from "../budgets/budgets.types";
 import { TransactionModel } from "./transactions.model";
 import {
 	createTransactionSchema,
@@ -16,6 +19,34 @@ export class TransactionsController {
 		private readonly categoryModel = new CategoryModel(),
 		private readonly paymentMethodModel = new PaymentMethodModel(),
 	) {}
+
+	private async checkBudgetNotifications(
+		userId: string,
+		categoryId: string,
+		subcategoryId: string | null,
+	) {
+		const transactionDate = new Date();
+		const month = transactionDate.getMonth() + 1;
+		const year = transactionDate.getFullYear();
+
+		const budgetsWithCategory = await budgetsModel.getWithCategory(userId, month, year);
+
+		const relevantBudget = budgetsWithCategory.find(
+			(b: BudgetWithCategory) =>
+				b.categoryId === categoryId &&
+				(subcategoryId ? b.subcategoryId === subcategoryId : !b.subcategoryId),
+		);
+
+		if (relevantBudget) {
+			triggerBudgetNotification({
+				userId,
+				budgetId: relevantBudget.id,
+				categoryName: relevantBudget.categoryName,
+				usedAmount: relevantBudget.spent,
+				budgetAmount: relevantBudget.amount,
+			}).catch((err) => console.error("[notification] budget trigger failed:", err));
+		}
+	}
 
 	listTransactions = async (request: FastifyRequest, reply: FastifyReply) => {
 		const { sub: userId } = request.user as { sub: string };
@@ -74,6 +105,10 @@ export class TransactionsController {
 		);
 		if (errCreate) throw new AppError("Erro ao criar transação", 500);
 
+		if (body.type === "expense" && body.categoryId) {
+			this.checkBudgetNotifications(userId, body.categoryId, body.subcategoryId || null);
+		}
+
 		return reply.status(201).send(transaction);
 	};
 
@@ -117,6 +152,10 @@ export class TransactionsController {
 		);
 		if (errReload)
 			throw new AppError("Erro ao carregar transação atualizada", 500);
+
+		if (reloaded && reloaded.type === "expense" && reloaded.categoryId) {
+			this.checkBudgetNotifications(userId, reloaded.categoryId, reloaded.subcategoryId);
+		}
 
 		return reply.send(reloaded);
 	};

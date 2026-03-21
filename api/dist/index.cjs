@@ -12,11 +12,11 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc5) => {
+var __copyProps = (to, from, except, desc6) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc5 = __getOwnPropDesc(from, key)) || desc5.enumerable });
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc6 = __getOwnPropDesc(from, key)) || desc6.enumerable });
   }
   return to;
 };
@@ -593,7 +593,9 @@ var envSchema = import_zod2.z.object({
   PORT: import_zod2.z.coerce.number().default(8080),
   DATABASE_URL: import_zod2.z.string().url(),
   JWT_SECRET: import_zod2.z.string().min(32),
-  CORS_ORIGIN: import_zod2.z.string().default("*")
+  CORS_ORIGIN: import_zod2.z.string().default("*"),
+  API_URL: import_zod2.z.string().url().default("http://localhost:3000"),
+  NODE_ENV: import_zod2.z.enum(["development", "production", "test"]).default("development")
 });
 var env = envSchema.parse(process.env);
 
@@ -606,6 +608,10 @@ __export(schema_exports, {
   frequencyEnum: () => frequencyEnum,
   goalContributions: () => goalContributions,
   goals: () => goals,
+  notificationEntityTypeEnum: () => notificationEntityTypeEnum,
+  notificationSettings: () => notificationSettings,
+  notificationTypeEnum: () => notificationTypeEnum,
+  notifications: () => notifications,
   paymentMethods: () => paymentMethods,
   recurringTransactions: () => recurringTransactions,
   subcategories: () => subcategories,
@@ -625,8 +631,15 @@ var frequencyEnum = (0, import_pg_core.pgEnum)("frequency_type", [
   "yearly",
   "custom"
 ]);
-var budgetPeriodEnum = (0, import_pg_core.pgEnum)("budget_period", [
-  "monthly"
+var budgetPeriodEnum = (0, import_pg_core.pgEnum)("budget_period", ["monthly"]);
+var notificationTypeEnum = (0, import_pg_core.pgEnum)("notification_type", [
+  "budget_warning",
+  "budget_exceeded",
+  "goal_milestone"
+]);
+var notificationEntityTypeEnum = (0, import_pg_core.pgEnum)("notification_entity_type", [
+  "budget",
+  "goal"
 ]);
 var users = (0, import_pg_core.pgTable)("users", {
   id: (0, import_pg_core.uuid)("id").primaryKey().defaultRandom(),
@@ -735,6 +748,27 @@ var goalContributions = (0, import_pg_core.pgTable)("goal_contributions", {
   amount: (0, import_pg_core.numeric)("amount", { precision: 12, scale: 2 }).notNull(),
   createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow()
 });
+var notifications = (0, import_pg_core.pgTable)("notifications", {
+  id: (0, import_pg_core.uuid)("id").primaryKey().defaultRandom(),
+  userId: (0, import_pg_core.uuid)("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  type: notificationTypeEnum("type").notNull(),
+  title: (0, import_pg_core.text)("title").notNull(),
+  body: (0, import_pg_core.text)("body"),
+  entityType: notificationEntityTypeEnum("entity_type"),
+  entityId: (0, import_pg_core.uuid)("entity_id"),
+  isRead: (0, import_pg_core.boolean)("is_read").notNull().default(false),
+  createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow()
+});
+var notificationSettings = (0, import_pg_core.pgTable)("notification_settings", {
+  id: (0, import_pg_core.uuid)("id").primaryKey().defaultRandom(),
+  userId: (0, import_pg_core.uuid)("user_id").references(() => users.id, { onDelete: "cascade" }).notNull().unique(),
+  budgetWarningPct: (0, import_pg_core.integer)("budget_warning_pct").notNull().default(80),
+  budgetExceeded: (0, import_pg_core.boolean)("budget_exceeded").notNull().default(true),
+  goalMilestones: (0, import_pg_core.boolean)("goal_milestones").notNull().default(true),
+  emailEnabled: (0, import_pg_core.boolean)("email_enabled").notNull().default(false),
+  emailAddress: (0, import_pg_core.text)("email_address"),
+  updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+});
 
 // src/drizzle/client.ts
 var client = (0, import_postgres.default)(env.DATABASE_URL);
@@ -775,7 +809,10 @@ var BudgetsModel = class {
     let amount = isSubcategory ? data.amount : data.amount;
     let existingSubcategoriesTotal = 0;
     if (!isSubcategory) {
-      const existingBudgets = await db.select({ amount: budgets.amount, subcategoryId: budgets.subcategoryId }).from(budgets).where(
+      const existingBudgets = await db.select({
+        amount: budgets.amount,
+        subcategoryId: budgets.subcategoryId
+      }).from(budgets).where(
         (0, import_drizzle_orm.and)(
           (0, import_drizzle_orm.eq)(budgets.userId, data.userId),
           (0, import_drizzle_orm.eq)(budgets.categoryId, data.categoryId),
@@ -784,7 +821,10 @@ var BudgetsModel = class {
         )
       );
       const existingSubs = existingBudgets.filter((b) => b.subcategoryId);
-      existingSubcategoriesTotal = existingSubs.reduce((sum2, b) => sum2 + toNumber(b.amount), 0);
+      existingSubcategoriesTotal = existingSubs.reduce(
+        (sum2, b) => sum2 + toNumber(b.amount),
+        0
+      );
       amount = baseAmount + existingSubcategoriesTotal;
     }
     let recurringGroupId = null;
@@ -830,12 +870,7 @@ var BudgetsModel = class {
     return db.select().from(budgets).where((0, import_drizzle_orm.eq)(budgets.userId, userId)).orderBy((0, import_drizzle_orm.desc)(budgets.year), (0, import_drizzle_orm.desc)(budgets.month));
   }
   async findRecurringByUser(userId) {
-    return db.select().from(budgets).where(
-      (0, import_drizzle_orm.and)(
-        (0, import_drizzle_orm.eq)(budgets.userId, userId),
-        (0, import_drizzle_orm.eq)(budgets.isRecurring, true)
-      )
-    );
+    return db.select().from(budgets).where((0, import_drizzle_orm.and)((0, import_drizzle_orm.eq)(budgets.userId, userId), (0, import_drizzle_orm.eq)(budgets.isRecurring, true)));
   }
   async ensureRecurringBudgetsExist(userId, month, year) {
     const recurringBudgets = await this.findRecurringByUser(userId);
@@ -897,7 +932,10 @@ var BudgetsModel = class {
     const subcategoriesTotalByCategory = /* @__PURE__ */ new Map();
     for (const sub of subcategoryBudgets) {
       const current = subcategoriesTotalByCategory.get(sub.categoryId) || 0;
-      subcategoriesTotalByCategory.set(sub.categoryId, current + toNumber(sub.amount));
+      subcategoriesTotalByCategory.set(
+        sub.categoryId,
+        current + toNumber(sub.amount)
+      );
     }
     const budgetsWithSpent = await Promise.all(
       userBudgets.map(async (budget) => {
@@ -1007,11 +1045,10 @@ var BudgetsModel = class {
           );
         }
         return { ...updated2, recurringGroupId: newGroupId };
-      } else {
-        updateData.isRecurring = data.isRecurring;
-        if (!data.isRecurring) {
-          updateData.recurringGroupId = null;
-        }
+      }
+      updateData.isRecurring = data.isRecurring;
+      if (!data.isRecurring) {
+        updateData.recurringGroupId = null;
       }
     }
     const [updated] = await db.update(budgets).set(updateData).where((0, import_drizzle_orm.eq)(budgets.id, id)).returning();
@@ -1078,12 +1115,14 @@ var createBudgetSchema = import_zod3.z.object({
   categoryId: import_zod3.z.string().uuid("ID da categoria inv\xE1lido"),
   subcategoryId: import_zod3.z.string().uuid("ID da subcategoria inv\xE1lido").optional(),
   amount: import_zod3.z.number().positive("Valor deve ser positivo"),
+  baseAmount: import_zod3.z.number().optional(),
   month: import_zod3.z.number().int().min(1).max(12, "M\xEAs inv\xE1lido"),
   year: import_zod3.z.number().int().min(2020).max(2100, "Ano inv\xE1lido"),
   isRecurring: import_zod3.z.boolean().optional().default(false)
 });
 var updateBudgetSchema = import_zod3.z.object({
   amount: import_zod3.z.number().positive("Valor deve ser positivo").optional(),
+  baseAmount: import_zod3.z.number().optional(),
   isActive: import_zod3.z.boolean().optional(),
   isRecurring: import_zod3.z.boolean().optional()
 });
@@ -1190,10 +1229,7 @@ var BudgetsController = class {
       throw new AppError("N\xE3o autorizado", 403);
     }
     if (!existing.isRecurring) {
-      throw new AppError(
-        "S\xF3 \xE9 poss\xEDvel desativar or\xE7amentos recorrentes",
-        400
-      );
+      throw new AppError("S\xF3 \xE9 poss\xEDvel desativar or\xE7amentos recorrentes", 400);
     }
     const [err, toggled] = await catchError(
       budgets_model_default.toggleActive(id, userId)
@@ -1249,7 +1285,9 @@ async function registerBudgetsRoutes(app) {
   const controller = new BudgetsController();
   app.addHook("onRequest", async (request, reply) => {
     const path = request.url.split("?")[0];
-    const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(route + "/"));
+    const isPublicRoute = PUBLIC_ROUTES.some(
+      (route) => path === route || path.startsWith(`${route}/`)
+    );
     if (isPublicRoute) return;
     if (!path.startsWith("/budgets")) return;
     try {
@@ -1292,7 +1330,10 @@ async function registerBudgetsRoutes(app) {
             amount: { type: "number" },
             month: { type: "integer", minimum: 1, maximum: 12 },
             year: { type: "integer" },
-            isRecurring: { type: "boolean", description: "Se o or\xE7amento deve se repetir mensalmente" }
+            isRecurring: {
+              type: "boolean",
+              description: "Se o or\xE7amento deve se repetir mensalmente"
+            }
           }
         }
       }
@@ -1316,7 +1357,10 @@ async function registerBudgetsRoutes(app) {
           type: "object",
           properties: {
             amount: { type: "number" },
-            isActive: { type: "boolean", description: "Ativar/desativar or\xE7amento recorrente" },
+            isActive: {
+              type: "boolean",
+              description: "Ativar/desativar or\xE7amento recorrente"
+            },
             isRecurring: { type: "boolean" }
           }
         }
@@ -1360,11 +1404,131 @@ async function registerBudgetsRoutes(app) {
   );
 }
 
+// src/modules/notifications/notifications.model.ts
+var import_drizzle_orm2 = require("drizzle-orm");
+var NotificationModel = class {
+  async findAll(userId, options) {
+    const { isRead, limit = 20, offset = 0 } = options || {};
+    const conditions = [(0, import_drizzle_orm2.eq)(notifications.userId, userId)];
+    if (isRead !== void 0) {
+      conditions.push((0, import_drizzle_orm2.eq)(notifications.isRead, isRead));
+    }
+    const results = await db.select().from(notifications).where((0, import_drizzle_orm2.and)(...conditions)).orderBy((0, import_drizzle_orm2.desc)(notifications.createdAt)).limit(limit).offset(offset);
+    const [{ count: count2 }] = await db.select({ count: import_drizzle_orm2.sql`count(*)::int` }).from(notifications).where((0, import_drizzle_orm2.eq)(notifications.userId, userId));
+    return { data: results, total: count2 };
+  }
+  async findById(id, userId) {
+    const [notification] = await db.select().from(notifications).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(notifications.id, id), (0, import_drizzle_orm2.eq)(notifications.userId, userId))).limit(1);
+    return notification;
+  }
+  async countUnread(userId) {
+    const [{ count: count2 }] = await db.select({ count: import_drizzle_orm2.sql`count(*)::int` }).from(notifications).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(notifications.userId, userId), (0, import_drizzle_orm2.eq)(notifications.isRead, false)));
+    return count2;
+  }
+  async create(data) {
+    const [notification] = await db.insert(notifications).values(data).returning();
+    return notification;
+  }
+  async markAsRead(id, userId) {
+    const [updated] = await db.update(notifications).set({ isRead: true }).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(notifications.id, id), (0, import_drizzle_orm2.eq)(notifications.userId, userId))).returning();
+    return updated;
+  }
+  async markAllAsRead(userId) {
+    await db.update(notifications).set({ isRead: true }).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(notifications.userId, userId), (0, import_drizzle_orm2.eq)(notifications.isRead, false)));
+  }
+  async delete(id, userId) {
+    const [deleted] = await db.delete(notifications).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(notifications.id, id), (0, import_drizzle_orm2.eq)(notifications.userId, userId))).returning();
+    return deleted;
+  }
+  async checkRecentNotification(userId, type, entityId, hoursAgo = 24) {
+    const cutoff = new Date(Date.now() - hoursAgo * 60 * 60 * 1e3);
+    const [existing] = await db.select().from(notifications).where(
+      (0, import_drizzle_orm2.and)(
+        (0, import_drizzle_orm2.eq)(notifications.userId, userId),
+        (0, import_drizzle_orm2.eq)(notifications.type, type),
+        (0, import_drizzle_orm2.eq)(notifications.entityId, entityId),
+        (0, import_drizzle_orm2.gte)(notifications.createdAt, cutoff)
+      )
+    ).limit(1);
+    return !!existing;
+  }
+};
+var NotificationSettingsModel = class {
+  async findByUserId(userId) {
+    const [settings] = await db.select().from(notificationSettings).where((0, import_drizzle_orm2.eq)(notificationSettings.userId, userId)).limit(1);
+    return settings;
+  }
+  async createOrUpdate(userId, data) {
+    const existing = await this.findByUserId(userId);
+    if (existing) {
+      const [updated] = await db.update(notificationSettings).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm2.eq)(notificationSettings.userId, userId)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(notificationSettings).values({ userId, ...data }).returning();
+    return created;
+  }
+};
+var notificationModel = new NotificationModel();
+var notificationSettingsModel = new NotificationSettingsModel();
+
+// src/utils/notificationTrigger.ts
+async function triggerBudgetNotification(params) {
+  const { userId, budgetId, categoryName, usedAmount, budgetAmount } = params;
+  const settings = await notificationSettingsModel.findByUserId(userId);
+  if (settings && !settings.budgetExceeded) return;
+  const percentage = usedAmount / budgetAmount * 100;
+  if (percentage < 100) {
+    const warningPct = settings?.budgetWarningPct ?? 80;
+    if (percentage < warningPct) return;
+  }
+  const type = percentage >= 100 ? "budget_exceeded" : "budget_warning";
+  const alreadyNotified = await notificationModel.checkRecentNotification(userId, type, budgetId);
+  if (alreadyNotified) return;
+  const title = type === "budget_exceeded" ? `Or\xE7amento de ${categoryName} excedido` : `Or\xE7amento de ${categoryName} em ${percentage.toFixed(0)}%`;
+  const body = type === "budget_exceeded" ? `Voc\xEA usou R$ ${usedAmount.toFixed(2)} de R$ ${budgetAmount.toFixed(2)}` : `Restam R$ ${(budgetAmount - usedAmount).toFixed(2)} do or\xE7amento`;
+  await notificationModel.create({
+    userId,
+    type,
+    title,
+    body,
+    entityType: "budget",
+    entityId: budgetId,
+    isRead: false
+  });
+}
+async function triggerGoalMilestoneNotification(params) {
+  const { userId, goalId, goalName, currentAmount, targetAmount } = params;
+  const settings = await notificationSettingsModel.findByUserId(userId);
+  if (settings && !settings.goalMilestones) return;
+  const percentage = currentAmount / targetAmount * 100;
+  let milestone;
+  if (percentage >= 100) {
+    milestone = 100;
+  } else if (percentage >= 75) {
+    milestone = 75;
+  } else {
+    milestone = 50;
+  }
+  const alreadyNotified = await notificationModel.checkRecentNotification(userId, "goal_milestone", goalId);
+  if (alreadyNotified) return;
+  const title = milestone === 100 ? `Meta "${goalName}" atingida!` : `Meta "${goalName}" em ${milestone}%`;
+  const body = milestone === 100 ? `Parab\xE9ns! Voc\xEA alcan\xE7ou R$ ${currentAmount.toFixed(2)}` : `Voc\xEA j\xE1 juntou R$ ${currentAmount.toFixed(2)} de R$ ${targetAmount.toFixed(2)}`;
+  await notificationModel.create({
+    userId,
+    type: "goal_milestone",
+    title,
+    body,
+    entityType: "goal",
+    entityId: goalId,
+    isRead: false
+  });
+}
+
 // src/modules/goals/goals.model.ts
-var import_drizzle_orm5 = require("drizzle-orm");
+var import_drizzle_orm6 = require("drizzle-orm");
 
 // src/modules/categories/categories.model.ts
-var import_drizzle_orm2 = require("drizzle-orm");
+var import_drizzle_orm3 = require("drizzle-orm");
 var CategoryModel = class {
   async findAll(userId) {
     return db.select({
@@ -1372,18 +1536,18 @@ var CategoryModel = class {
       name: categories.name,
       color: categories.color,
       icon: categories.icon
-    }).from(categories).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(categories.userId, userId), (0, import_drizzle_orm2.isNull)(categories.deletedAt))).orderBy((0, import_drizzle_orm2.asc)(categories.name));
+    }).from(categories).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(categories.userId, userId), (0, import_drizzle_orm3.isNull)(categories.deletedAt))).orderBy((0, import_drizzle_orm3.asc)(categories.name));
   }
   async findById(id, userId) {
-    const [category] = await db.select().from(categories).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(categories.id, id), (0, import_drizzle_orm2.eq)(categories.userId, userId))).limit(1);
+    const [category] = await db.select().from(categories).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(categories.id, id), (0, import_drizzle_orm3.eq)(categories.userId, userId))).limit(1);
     return category;
   }
   async findByName(name, userId) {
     const [category] = await db.select().from(categories).where(
-      (0, import_drizzle_orm2.and)(
-        (0, import_drizzle_orm2.eq)(categories.name, name),
-        (0, import_drizzle_orm2.eq)(categories.userId, userId),
-        (0, import_drizzle_orm2.isNull)(categories.deletedAt)
+      (0, import_drizzle_orm3.and)(
+        (0, import_drizzle_orm3.eq)(categories.name, name),
+        (0, import_drizzle_orm3.eq)(categories.userId, userId),
+        (0, import_drizzle_orm3.isNull)(categories.deletedAt)
       )
     ).limit(1);
     return category;
@@ -1399,46 +1563,46 @@ var CategoryModel = class {
   }
   async updateCategory(id, userId, data) {
     const [updated] = await db.update(categories).set(data).where(
-      (0, import_drizzle_orm2.and)(
-        (0, import_drizzle_orm2.eq)(categories.id, id),
-        (0, import_drizzle_orm2.eq)(categories.userId, userId),
-        (0, import_drizzle_orm2.isNull)(categories.deletedAt)
+      (0, import_drizzle_orm3.and)(
+        (0, import_drizzle_orm3.eq)(categories.id, id),
+        (0, import_drizzle_orm3.eq)(categories.userId, userId),
+        (0, import_drizzle_orm3.isNull)(categories.deletedAt)
       )
     ).returning();
     return updated;
   }
   async softDelete(id, userId) {
     const [deleted] = await db.update(categories).set({ deletedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm2.and)(
-        (0, import_drizzle_orm2.eq)(categories.id, id),
-        (0, import_drizzle_orm2.eq)(categories.userId, userId),
-        (0, import_drizzle_orm2.isNull)(categories.deletedAt)
+      (0, import_drizzle_orm3.and)(
+        (0, import_drizzle_orm3.eq)(categories.id, id),
+        (0, import_drizzle_orm3.eq)(categories.userId, userId),
+        (0, import_drizzle_orm3.isNull)(categories.deletedAt)
       )
     ).returning();
     return deleted;
   }
   async restoreCategory(id, userId) {
-    const [restored] = await db.update(categories).set({ deletedAt: null }).where((0, import_drizzle_orm2.and)((0, import_drizzle_orm2.eq)(categories.id, id), (0, import_drizzle_orm2.eq)(categories.userId, userId))).returning();
+    const [restored] = await db.update(categories).set({ deletedAt: null }).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(categories.id, id), (0, import_drizzle_orm3.eq)(categories.userId, userId))).returning();
     return restored;
   }
 };
 
 // src/modules/payment-methods/payment-methods.model.ts
-var import_drizzle_orm3 = require("drizzle-orm");
+var import_drizzle_orm4 = require("drizzle-orm");
 var PaymentMethodModel = class {
   async findAll(userId) {
     return db.select({
       id: paymentMethods.id,
       name: paymentMethods.name
     }).from(paymentMethods).where(
-      (0, import_drizzle_orm3.and)(
-        (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId),
-        (0, import_drizzle_orm3.isNull)(paymentMethods.deletedAt)
+      (0, import_drizzle_orm4.and)(
+        (0, import_drizzle_orm4.eq)(paymentMethods.userId, userId),
+        (0, import_drizzle_orm4.isNull)(paymentMethods.deletedAt)
       )
-    ).orderBy((0, import_drizzle_orm3.asc)(paymentMethods.name));
+    ).orderBy((0, import_drizzle_orm4.asc)(paymentMethods.name));
   }
   async findById(id, userId) {
-    const [method] = await db.select().from(paymentMethods).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(paymentMethods.id, id), (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId))).limit(1);
+    const [method] = await db.select().from(paymentMethods).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(paymentMethods.id, id), (0, import_drizzle_orm4.eq)(paymentMethods.userId, userId))).limit(1);
     return method;
   }
   async createMethod(userId, data) {
@@ -1450,34 +1614,34 @@ var PaymentMethodModel = class {
   }
   async updateMethod(id, userId, data) {
     const [updated] = await db.update(paymentMethods).set(data).where(
-      (0, import_drizzle_orm3.and)(
-        (0, import_drizzle_orm3.eq)(paymentMethods.id, id),
-        (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId),
-        (0, import_drizzle_orm3.isNull)(paymentMethods.deletedAt)
+      (0, import_drizzle_orm4.and)(
+        (0, import_drizzle_orm4.eq)(paymentMethods.id, id),
+        (0, import_drizzle_orm4.eq)(paymentMethods.userId, userId),
+        (0, import_drizzle_orm4.isNull)(paymentMethods.deletedAt)
       )
     ).returning();
     return updated;
   }
   async softDelete(id, userId) {
     const [deleted] = await db.update(paymentMethods).set({ deletedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm3.and)(
-        (0, import_drizzle_orm3.eq)(paymentMethods.id, id),
-        (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId),
-        (0, import_drizzle_orm3.isNull)(paymentMethods.deletedAt)
+      (0, import_drizzle_orm4.and)(
+        (0, import_drizzle_orm4.eq)(paymentMethods.id, id),
+        (0, import_drizzle_orm4.eq)(paymentMethods.userId, userId),
+        (0, import_drizzle_orm4.isNull)(paymentMethods.deletedAt)
       )
     ).returning();
     return deleted;
   }
   async restoreMethod(id, userId) {
-    const [restored] = await db.update(paymentMethods).set({ deletedAt: null }).where((0, import_drizzle_orm3.and)((0, import_drizzle_orm3.eq)(paymentMethods.id, id), (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId))).returning();
+    const [restored] = await db.update(paymentMethods).set({ deletedAt: null }).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(paymentMethods.id, id), (0, import_drizzle_orm4.eq)(paymentMethods.userId, userId))).returning();
     return restored;
   }
   async findByName(name, userId) {
     const [method] = await db.select().from(paymentMethods).where(
-      (0, import_drizzle_orm3.and)(
-        (0, import_drizzle_orm3.eq)(paymentMethods.userId, userId),
-        (0, import_drizzle_orm3.eq)(paymentMethods.name, name),
-        (0, import_drizzle_orm3.isNull)(paymentMethods.deletedAt)
+      (0, import_drizzle_orm4.and)(
+        (0, import_drizzle_orm4.eq)(paymentMethods.userId, userId),
+        (0, import_drizzle_orm4.eq)(paymentMethods.name, name),
+        (0, import_drizzle_orm4.isNull)(paymentMethods.deletedAt)
       )
     ).limit(1);
     return method;
@@ -1485,7 +1649,7 @@ var PaymentMethodModel = class {
 };
 
 // src/modules/transactions/transactions.model.ts
-var import_drizzle_orm4 = require("drizzle-orm");
+var import_drizzle_orm5 = require("drizzle-orm");
 var TransactionModel = class {
   async findAll(userId, filters) {
     const startDate = filters.startDate ? new Date(filters.startDate) : void 0;
@@ -1516,29 +1680,29 @@ var TransactionModel = class {
         name: paymentMethods.name
       },
       createdAt: transactions.createdAt
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm4.eq)(transactions.categoryId, categories.id)).leftJoin(subcategories, (0, import_drizzle_orm4.eq)(transactions.subcategoryId, subcategories.id)).leftJoin(
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm5.eq)(transactions.categoryId, categories.id)).leftJoin(subcategories, (0, import_drizzle_orm5.eq)(transactions.subcategoryId, subcategories.id)).leftJoin(
       paymentMethods,
-      (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, paymentMethods.id)
+      (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, paymentMethods.id)
     ).where(
-      (0, import_drizzle_orm4.and)(
-        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
-        filters.type ? (0, import_drizzle_orm4.eq)(transactions.type, filters.type) : void 0,
-        filters.categoryId ? (0, import_drizzle_orm4.eq)(transactions.categoryId, filters.categoryId) : void 0,
-        filters.paymentMethodId ? (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
-        filters.month ? import_drizzle_orm4.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
-        startDate ? (0, import_drizzle_orm4.gte)(transactions.date, startDate) : void 0,
-        endDate ? (0, import_drizzle_orm4.lte)(transactions.date, endDate) : void 0
+      (0, import_drizzle_orm5.and)(
+        (0, import_drizzle_orm5.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm5.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm5.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        filters.paymentMethodId ? (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
+        filters.month ? import_drizzle_orm5.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
+        startDate ? (0, import_drizzle_orm5.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm5.lte)(transactions.date, endDate) : void 0
       )
-    ).orderBy((0, import_drizzle_orm4.desc)(transactions.date), (0, import_drizzle_orm4.desc)(transactions.createdAt)).limit(filters.limit).offset((filters.page - 1) * filters.limit);
-    const countQuery = db.select({ count: (0, import_drizzle_orm4.count)() }).from(transactions).where(
-      (0, import_drizzle_orm4.and)(
-        (0, import_drizzle_orm4.eq)(transactions.userId, userId),
-        filters.type ? (0, import_drizzle_orm4.eq)(transactions.type, filters.type) : void 0,
-        filters.categoryId ? (0, import_drizzle_orm4.eq)(transactions.categoryId, filters.categoryId) : void 0,
-        filters.paymentMethodId ? (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
-        filters.month ? import_drizzle_orm4.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
-        startDate ? (0, import_drizzle_orm4.gte)(transactions.date, startDate) : void 0,
-        endDate ? (0, import_drizzle_orm4.lte)(transactions.date, endDate) : void 0
+    ).orderBy((0, import_drizzle_orm5.desc)(transactions.date), (0, import_drizzle_orm5.desc)(transactions.createdAt)).limit(filters.limit).offset((filters.page - 1) * filters.limit);
+    const countQuery = db.select({ count: (0, import_drizzle_orm5.count)() }).from(transactions).where(
+      (0, import_drizzle_orm5.and)(
+        (0, import_drizzle_orm5.eq)(transactions.userId, userId),
+        filters.type ? (0, import_drizzle_orm5.eq)(transactions.type, filters.type) : void 0,
+        filters.categoryId ? (0, import_drizzle_orm5.eq)(transactions.categoryId, filters.categoryId) : void 0,
+        filters.paymentMethodId ? (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, filters.paymentMethodId) : void 0,
+        filters.month ? import_drizzle_orm5.sql`to_char(${transactions.date}, 'YYYY-MM') = ${filters.month}` : void 0,
+        startDate ? (0, import_drizzle_orm5.gte)(transactions.date, startDate) : void 0,
+        endDate ? (0, import_drizzle_orm5.lte)(transactions.date, endDate) : void 0
       )
     );
     const [data, [{ count: totalSize }]] = await Promise.all([
@@ -1559,6 +1723,7 @@ var TransactionModel = class {
       type: transactions.type,
       date: transactions.date,
       categoryId: transactions.categoryId,
+      subcategoryId: transactions.subcategoryId,
       category: {
         id: categories.id,
         name: categories.name,
@@ -1571,10 +1736,10 @@ var TransactionModel = class {
         name: paymentMethods.name
       },
       createdAt: transactions.createdAt
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm4.eq)(transactions.categoryId, categories.id)).leftJoin(
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm5.eq)(transactions.categoryId, categories.id)).leftJoin(
       paymentMethods,
-      (0, import_drizzle_orm4.eq)(transactions.paymentMethodId, paymentMethods.id)
-    ).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).limit(1);
+      (0, import_drizzle_orm5.eq)(transactions.paymentMethodId, paymentMethods.id)
+    ).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(transactions.id, id), (0, import_drizzle_orm5.eq)(transactions.userId, userId))).limit(1);
     return transaction;
   }
   async createTransaction(userId, data) {
@@ -1593,19 +1758,23 @@ var TransactionModel = class {
   }
   async updateTransaction(id, userId, data) {
     const updateData = {};
-    if (data.description !== void 0) updateData.description = data.description;
-    if (data.subDescription !== void 0) updateData.subDescription = data.subDescription;
+    if (data.description !== void 0)
+      updateData.description = data.description;
+    if (data.subDescription !== void 0)
+      updateData.subDescription = data.subDescription;
     if (data.amount !== void 0) updateData.amount = data.amount.toString();
     if (data.type !== void 0) updateData.type = data.type;
     if (data.date !== void 0) updateData.date = new Date(data.date);
     if (data.categoryId !== void 0) updateData.categoryId = data.categoryId;
-    if (data.subcategoryId !== void 0) updateData.subcategoryId = data.subcategoryId;
-    if (data.paymentMethodId !== void 0) updateData.paymentMethodId = data.paymentMethodId;
-    const [updated] = await db.update(transactions).set(updateData).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).returning();
+    if (data.subcategoryId !== void 0)
+      updateData.subcategoryId = data.subcategoryId;
+    if (data.paymentMethodId !== void 0)
+      updateData.paymentMethodId = data.paymentMethodId;
+    const [updated] = await db.update(transactions).set(updateData).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(transactions.id, id), (0, import_drizzle_orm5.eq)(transactions.userId, userId))).returning();
     return updated;
   }
   async deleteTransaction(id, userId) {
-    const [deleted] = await db.delete(transactions).where((0, import_drizzle_orm4.and)((0, import_drizzle_orm4.eq)(transactions.id, id), (0, import_drizzle_orm4.eq)(transactions.userId, userId))).returning();
+    const [deleted] = await db.delete(transactions).where((0, import_drizzle_orm5.and)((0, import_drizzle_orm5.eq)(transactions.id, id), (0, import_drizzle_orm5.eq)(transactions.userId, userId))).returning();
     return deleted;
   }
 };
@@ -1631,7 +1800,7 @@ var GoalsModel = class {
       isActive: goals.isActive,
       createdAt: goals.createdAt,
       updatedAt: goals.updatedAt
-    }).from(goals).where((0, import_drizzle_orm5.eq)(goals.userId, userId)).orderBy(goals.createdAt);
+    }).from(goals).where((0, import_drizzle_orm6.eq)(goals.userId, userId)).orderBy(goals.createdAt);
     return result;
   }
   async findById(id) {
@@ -1649,7 +1818,7 @@ var GoalsModel = class {
       isActive: goals.isActive,
       createdAt: goals.createdAt,
       updatedAt: goals.updatedAt
-    }).from(goals).where((0, import_drizzle_orm5.eq)(goals.id, id)).limit(1);
+    }).from(goals).where((0, import_drizzle_orm6.eq)(goals.id, id)).limit(1);
     return result;
   }
   async create(userId, data) {
@@ -1678,7 +1847,7 @@ var GoalsModel = class {
     if (data.icon !== void 0) updateData.icon = data.icon;
     if (data.color !== void 0) updateData.color = data.color;
     if (data.isActive !== void 0) updateData.isActive = data.isActive;
-    const [result] = await db.update(goals).set(updateData).where((0, import_drizzle_orm5.eq)(goals.id, id)).returning();
+    const [result] = await db.update(goals).set(updateData).where((0, import_drizzle_orm6.eq)(goals.id, id)).returning();
     return result;
   }
   async contribute(userId, id, amount) {
@@ -1686,16 +1855,19 @@ var GoalsModel = class {
     if (!goal || goal.userId !== userId) return null;
     let categoryId = goal.categoryId;
     if (!categoryId) {
-      let category = await this.categoryModel.findByName("Meta", userId);
-      if (!category) {
-        category = await this.categoryModel.createCategory(userId, {
+      let category2 = await this.categoryModel.findByName("Meta", userId);
+      if (!category2) {
+        category2 = await this.categoryModel.createCategory(userId, {
           name: "Meta",
           color: "#6B7280"
         });
       }
-      categoryId = category.id;
+      categoryId = category2.id;
     }
-    let paymentMethod = await this.paymentMethodModel.findByName("Interno", userId);
+    let paymentMethod = await this.paymentMethodModel.findByName(
+      "Interno",
+      userId
+    );
     if (!paymentMethod) {
       paymentMethod = await this.paymentMethodModel.createMethod(userId, {
         name: "Interno"
@@ -1710,17 +1882,24 @@ var GoalsModel = class {
       paymentMethodId: paymentMethod.id
     });
     const newAmount = Number(goal.currentAmount) + amount;
-    await db.update(goals).set({
+    const [category] = await db.update(goals).set({
       currentAmount: newAmount.toString(),
       categoryId
-    }).where((0, import_drizzle_orm5.eq)(goals.id, id));
+    }).where((0, import_drizzle_orm6.eq)(goals.id, id)).returning();
     const [contribution] = await db.insert(goalContributions).values({
       goalId: id,
       transactionId: transaction.id,
       type: "deposit",
       amount: amount.toString()
     }).returning();
-    return { contribution, goal: { ...goal, currentAmount: newAmount.toString() } };
+    return {
+      contribution,
+      goal: {
+        ...goal,
+        categoryId: category.categoryId,
+        currentAmount: newAmount.toString()
+      }
+    };
   }
   async withdraw(userId, id, amount) {
     const goal = await this.findById(id);
@@ -1740,7 +1919,10 @@ var GoalsModel = class {
       }
       categoryId = category.id;
     }
-    let paymentMethod = await this.paymentMethodModel.findByName("Interno", userId);
+    let paymentMethod = await this.paymentMethodModel.findByName(
+      "Interno",
+      userId
+    );
     if (!paymentMethod) {
       paymentMethod = await this.paymentMethodModel.createMethod(userId, {
         name: "Interno"
@@ -1757,14 +1939,17 @@ var GoalsModel = class {
     const newAmount = currentAmount - amount;
     await db.update(goals).set({
       currentAmount: newAmount.toString()
-    }).where((0, import_drizzle_orm5.eq)(goals.id, id));
+    }).where((0, import_drizzle_orm6.eq)(goals.id, id));
     const [withdrawal] = await db.insert(goalContributions).values({
       goalId: id,
       transactionId: transaction.id,
       type: "withdrawal",
       amount: amount.toString()
     }).returning();
-    return { withdrawal, goal: { ...goal, currentAmount: newAmount.toString() } };
+    return {
+      withdrawal,
+      goal: { ...goal, currentAmount: newAmount.toString() }
+    };
   }
   async findContributionsByGoalId(goalId) {
     const result = await db.select({
@@ -1774,22 +1959,28 @@ var GoalsModel = class {
       type: goalContributions.type,
       amount: goalContributions.amount,
       createdAt: goalContributions.createdAt
-    }).from(goalContributions).where((0, import_drizzle_orm5.eq)(goalContributions.goalId, goalId)).orderBy(goalContributions.createdAt);
+    }).from(goalContributions).where((0, import_drizzle_orm6.eq)(goalContributions.goalId, goalId)).orderBy(goalContributions.createdAt);
     return result;
   }
   async removeContribution(userId, contributionId) {
-    const [contribution] = await db.select().from(goalContributions).where((0, import_drizzle_orm5.eq)(goalContributions.id, contributionId)).limit(1);
+    const [contribution] = await db.select().from(goalContributions).where((0, import_drizzle_orm6.eq)(goalContributions.id, contributionId)).limit(1);
     if (!contribution) return null;
     const goal = await this.findById(contribution.goalId);
     if (!goal || goal.userId !== userId) return null;
-    await this.transactionModel.deleteTransaction(contribution.transactionId, userId);
+    await this.transactionModel.deleteTransaction(
+      contribution.transactionId,
+      userId
+    );
     const newAmount = Number(goal.currentAmount) - Number(contribution.amount);
-    await db.update(goals).set({ currentAmount: newAmount.toString() }).where((0, import_drizzle_orm5.eq)(goals.id, goal.id));
-    await db.delete(goalContributions).where((0, import_drizzle_orm5.eq)(goalContributions.id, contributionId));
-    return { removed: contribution, goal: { ...goal, currentAmount: newAmount.toString() } };
+    await db.update(goals).set({ currentAmount: newAmount.toString() }).where((0, import_drizzle_orm6.eq)(goals.id, goal.id));
+    await db.delete(goalContributions).where((0, import_drizzle_orm6.eq)(goalContributions.id, contributionId));
+    return {
+      removed: contribution,
+      goal: { ...goal, currentAmount: newAmount.toString() }
+    };
   }
   async delete(id) {
-    const [result] = await db.delete(goals).where((0, import_drizzle_orm5.eq)(goals.id, id)).returning();
+    const [result] = await db.delete(goals).where((0, import_drizzle_orm6.eq)(goals.id, id)).returning();
     return result;
   }
 };
@@ -1887,13 +2078,22 @@ var GoalsController = class {
     if (existing.userId !== userId) {
       throw new AppError("N\xE3o autorizado", 403);
     }
-    const [err, goal] = await catchError(
+    const [err, result] = await catchError(
       this.goalsModel.contribute(userId, id, data.amount)
     );
     if (err) {
       throw new AppError("Erro ao contribuir com meta", 500);
     }
-    return reply.send({ goal });
+    if (result) {
+      triggerGoalMilestoneNotification({
+        userId,
+        goalId: id,
+        goalName: existing.name,
+        currentAmount: Number(result.goal.currentAmount),
+        targetAmount: Number(result.goal.targetAmount)
+      }).catch((e) => console.error("[notification] goal trigger failed:", e));
+    }
+    return reply.send({ goal: result?.goal });
   };
   withdraw = async (req, reply) => {
     const userId = req.user.sub;
@@ -2169,268 +2369,6 @@ async function registerGoalsRoutes(app) {
       }
     },
     controller.removeContribution
-  );
-}
-
-// src/modules/subcategories/subcategories.model.ts
-var import_drizzle_orm6 = require("drizzle-orm");
-var SubcategoryModel = class {
-  async findAll(userId) {
-    return db.select({
-      id: subcategories.id,
-      name: subcategories.name,
-      color: subcategories.color,
-      icon: subcategories.icon,
-      categoryId: subcategories.categoryId,
-      categoryName: categories.name
-    }).from(subcategories).leftJoin(categories, (0, import_drizzle_orm6.eq)(subcategories.categoryId, categories.id)).where((0, import_drizzle_orm6.and)((0, import_drizzle_orm6.eq)(subcategories.userId, userId), (0, import_drizzle_orm6.isNull)(subcategories.deletedAt))).orderBy((0, import_drizzle_orm6.asc)(subcategories.name));
-  }
-  async findByCategory(userId, categoryId) {
-    return db.select({
-      id: subcategories.id,
-      name: subcategories.name,
-      color: subcategories.color,
-      icon: subcategories.icon,
-      categoryId: subcategories.categoryId
-    }).from(subcategories).where(
-      (0, import_drizzle_orm6.and)(
-        (0, import_drizzle_orm6.eq)(subcategories.userId, userId),
-        (0, import_drizzle_orm6.eq)(subcategories.categoryId, categoryId),
-        (0, import_drizzle_orm6.isNull)(subcategories.deletedAt)
-      )
-    ).orderBy((0, import_drizzle_orm6.asc)(subcategories.name));
-  }
-  async findById(id, userId) {
-    const [subcategory] = await db.select().from(subcategories).where((0, import_drizzle_orm6.and)((0, import_drizzle_orm6.eq)(subcategories.id, id), (0, import_drizzle_orm6.eq)(subcategories.userId, userId))).limit(1);
-    return subcategory;
-  }
-  async create(userId, data) {
-    const [subcategory] = await db.insert(subcategories).values({
-      userId,
-      categoryId: data.categoryId,
-      name: data.name,
-      color: data.color || "#3B82F6",
-      icon: data.icon
-    }).returning();
-    return subcategory;
-  }
-  async update(id, userId, data) {
-    const [updated] = await db.update(subcategories).set(data).where(
-      (0, import_drizzle_orm6.and)(
-        (0, import_drizzle_orm6.eq)(subcategories.id, id),
-        (0, import_drizzle_orm6.eq)(subcategories.userId, userId),
-        (0, import_drizzle_orm6.isNull)(subcategories.deletedAt)
-      )
-    ).returning();
-    return updated;
-  }
-  async softDelete(id, userId) {
-    const [deleted] = await db.update(subcategories).set({ deletedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm6.and)(
-        (0, import_drizzle_orm6.eq)(subcategories.id, id),
-        (0, import_drizzle_orm6.eq)(subcategories.userId, userId),
-        (0, import_drizzle_orm6.isNull)(subcategories.deletedAt)
-      )
-    ).returning();
-    return deleted;
-  }
-  async restore(id, userId) {
-    const [restored] = await db.update(subcategories).set({ deletedAt: null }).where((0, import_drizzle_orm6.and)((0, import_drizzle_orm6.eq)(subcategories.id, id), (0, import_drizzle_orm6.eq)(subcategories.userId, userId))).returning();
-    return restored;
-  }
-};
-var subcategories_model_default = new SubcategoryModel();
-
-// src/modules/subcategories/subcategories.schema.ts
-var import_zod5 = require("zod");
-var createSubcategorySchema = import_zod5.z.object({
-  name: import_zod5.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
-  color: import_zod5.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
-  icon: import_zod5.z.string().optional(),
-  categoryId: import_zod5.z.string().uuid("ID da categoria inv\xE1lido")
-});
-var subcategorySchema = import_zod5.z.object({
-  id: import_zod5.z.string().uuid(),
-  name: import_zod5.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
-  color: import_zod5.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
-  icon: import_zod5.z.string().optional().nullable(),
-  categoryId: import_zod5.z.string().uuid("ID da categoria inv\xE1lido")
-});
-var updateSubcategorySchema = createSubcategorySchema.partial();
-
-// src/modules/subcategories/subcategories.controller.ts
-var SubcategoriesController = class {
-  constructor(model = new SubcategoryModel()) {
-    this.model = model;
-  }
-  list = async (request, reply) => {
-    const { sub: userId } = request.user;
-    const { categoryId } = request.query;
-    let subcategories2;
-    if (categoryId) {
-      subcategories2 = await this.model.findByCategory(userId, categoryId);
-    } else {
-      subcategories2 = await this.model.findAll(userId);
-    }
-    return reply.send(subcategories2);
-  };
-  create = async (request, reply) => {
-    const { sub: userId } = request.user;
-    const body = createSubcategorySchema.parse(request.body);
-    const [err, subcategory] = await catchError(
-      this.model.create(userId, body)
-    );
-    if (err) throw new AppError("Erro ao criar subcategoria", 500);
-    return reply.status(201).send(subcategory);
-  };
-  update = async (request, reply) => {
-    const { sub: userId } = request.user;
-    const { id } = request.params;
-    const body = updateSubcategorySchema.parse(request.body);
-    const [err, updated] = await catchError(
-      this.model.update(id, userId, body)
-    );
-    if (err) throw new AppError("Erro ao atualizar subcategoria", 500);
-    if (!updated) {
-      throw new AppError("Subcategoria n\xE3o encontrada", 404);
-    }
-    return reply.send(updated);
-  };
-  delete = async (request, reply) => {
-    const { sub: userId } = request.user;
-    const { id } = request.params;
-    const [err, deleted] = await catchError(this.model.softDelete(id, userId));
-    if (err) throw new AppError("Erro ao deletar subcategoria", 500);
-    if (!deleted) {
-      throw new AppError("Subcategoria n\xE3o encontrada", 404);
-    }
-    return reply.send({ message: "Subcategoria deletada com sucesso" });
-  };
-  restore = async (request, reply) => {
-    const { sub: userId } = request.user;
-    const { id } = request.params;
-    const [err, restored] = await catchError(this.model.restore(id, userId));
-    if (err) throw new AppError("Erro ao restaurar subcategoria", 500);
-    if (!restored) {
-      throw new AppError("Subcategoria n\xE3o encontrada", 404);
-    }
-    return reply.send(restored);
-  };
-};
-var subcategories_controller_default = new SubcategoriesController();
-
-// src/modules/subcategories/subcategories.routes.ts
-var PUBLIC_ROUTES2 = ["/health", "/docs"];
-async function registerSubcategoriesRoutes(app) {
-  const controller = new SubcategoriesController();
-  app.addHook("onRequest", async (request, reply) => {
-    const path = request.url.split("?")[0];
-    const isPublicRoute = PUBLIC_ROUTES2.some((route) => path === route || path.startsWith(route + "/"));
-    if (isPublicRoute) return;
-    if (!path.startsWith("/subcategories")) return;
-    try {
-      await request.jwtVerify();
-    } catch (err) {
-      reply.send(err);
-    }
-  });
-  app.get(
-    "/subcategories",
-    {
-      schema: {
-        description: "Lista subcategorias do usu\xE1rio",
-        tags: ["Subcategories"],
-        security: [{ bearerAuth: [] }],
-        querystring: {
-          type: "object",
-          properties: {
-            categoryId: { type: "string", format: "uuid" }
-          }
-        }
-      }
-    },
-    controller.list
-  );
-  app.post(
-    "/subcategories",
-    {
-      schema: {
-        description: "Cria uma nova subcategoria",
-        tags: ["Subcategories"],
-        security: [{ bearerAuth: [] }],
-        body: {
-          type: "object",
-          required: ["name", "categoryId"],
-          properties: {
-            name: { type: "string" },
-            color: { type: "string" },
-            icon: { type: "string" },
-            categoryId: { type: "string", format: "uuid" }
-          }
-        }
-      }
-    },
-    controller.create
-  );
-  app.put(
-    "/subcategories/:id",
-    {
-      schema: {
-        description: "Atualiza uma subcategoria",
-        tags: ["Subcategories"],
-        security: [{ bearerAuth: [] }],
-        params: {
-          type: "object",
-          properties: {
-            id: { type: "string", format: "uuid" }
-          }
-        },
-        body: {
-          type: "object",
-          properties: {
-            name: { type: "string" },
-            color: { type: "string" },
-            icon: { type: "string" },
-            categoryId: { type: "string", format: "uuid" }
-          }
-        }
-      }
-    },
-    controller.update
-  );
-  app.delete(
-    "/subcategories/:id",
-    {
-      schema: {
-        description: "Soft delete de uma subcategoria",
-        tags: ["Subcategories"],
-        security: [{ bearerAuth: [] }],
-        params: {
-          type: "object",
-          properties: {
-            id: { type: "string", format: "uuid" }
-          }
-        }
-      }
-    },
-    controller.delete
-  );
-  app.patch(
-    "/subcategories/:id/restore",
-    {
-      schema: {
-        description: "Restaura uma subcategoria deletada",
-        tags: ["Subcategories"],
-        security: [{ bearerAuth: [] }],
-        params: {
-          type: "object",
-          properties: {
-            id: { type: "string", format: "uuid" }
-          }
-        }
-      }
-    },
-    controller.restore
   );
 }
 
@@ -3272,7 +3210,10 @@ async function registerSeedDashboardRoutes(app) {
         querystring: {
           type: "object",
           properties: {
-            startDate: { type: "string", description: "Data inicial (YYYY-MM-DD)" },
+            startDate: {
+              type: "string",
+              description: "Data inicial (YYYY-MM-DD)"
+            },
             endDate: { type: "string", description: "Data final (YYYY-MM-DD)" }
           }
         }
@@ -3290,7 +3231,10 @@ async function registerSeedDashboardRoutes(app) {
         querystring: {
           type: "object",
           properties: {
-            startDate: { type: "string", description: "Data inicial (YYYY-MM-DD)" },
+            startDate: {
+              type: "string",
+              description: "Data inicial (YYYY-MM-DD)"
+            },
             endDate: { type: "string", description: "Data final (YYYY-MM-DD)" }
           }
         }
@@ -3308,7 +3252,10 @@ async function registerSeedDashboardRoutes(app) {
         querystring: {
           type: "object",
           properties: {
-            startDate: { type: "string", description: "Data inicial (YYYY-MM-DD)" },
+            startDate: {
+              type: "string",
+              description: "Data inicial (YYYY-MM-DD)"
+            },
             endDate: { type: "string", description: "Data final (YYYY-MM-DD)" }
           }
         }
@@ -3318,13 +3265,290 @@ async function registerSeedDashboardRoutes(app) {
   );
 }
 
+// src/modules/subcategories/subcategories.model.ts
+var import_drizzle_orm8 = require("drizzle-orm");
+var SubcategoryModel = class {
+  async findAll(userId) {
+    return db.select({
+      id: subcategories.id,
+      name: subcategories.name,
+      color: subcategories.color,
+      icon: subcategories.icon,
+      categoryId: subcategories.categoryId,
+      categoryName: categories.name
+    }).from(subcategories).leftJoin(categories, (0, import_drizzle_orm8.eq)(subcategories.categoryId, categories.id)).where(
+      (0, import_drizzle_orm8.and)((0, import_drizzle_orm8.eq)(subcategories.userId, userId), (0, import_drizzle_orm8.isNull)(subcategories.deletedAt))
+    ).orderBy((0, import_drizzle_orm8.asc)(subcategories.name));
+  }
+  async findByCategory(userId, categoryId) {
+    return db.select({
+      id: subcategories.id,
+      name: subcategories.name,
+      color: subcategories.color,
+      icon: subcategories.icon,
+      categoryId: subcategories.categoryId
+    }).from(subcategories).where(
+      (0, import_drizzle_orm8.and)(
+        (0, import_drizzle_orm8.eq)(subcategories.userId, userId),
+        (0, import_drizzle_orm8.eq)(subcategories.categoryId, categoryId),
+        (0, import_drizzle_orm8.isNull)(subcategories.deletedAt)
+      )
+    ).orderBy((0, import_drizzle_orm8.asc)(subcategories.name));
+  }
+  async findById(id, userId) {
+    const [subcategory] = await db.select().from(subcategories).where((0, import_drizzle_orm8.and)((0, import_drizzle_orm8.eq)(subcategories.id, id), (0, import_drizzle_orm8.eq)(subcategories.userId, userId))).limit(1);
+    return subcategory;
+  }
+  async create(userId, data) {
+    const subcategoryExists = await db.select().from(subcategories).where(
+      (0, import_drizzle_orm8.and)(
+        (0, import_drizzle_orm8.eq)(subcategories.userId, userId),
+        (0, import_drizzle_orm8.eq)(subcategories.categoryId, data.categoryId),
+        (0, import_drizzle_orm8.eq)(subcategories.name, data.name),
+        (0, import_drizzle_orm8.isNull)(subcategories.deletedAt)
+      )
+    ).limit(1);
+    if (subcategoryExists.length > 0) {
+      throw new Error("Subcategoria com esse nome j\xE1 existe nessa categoria");
+    }
+    const [subcategory] = await db.insert(subcategories).values({
+      userId,
+      categoryId: data.categoryId,
+      name: data.name,
+      color: data.color || "#3B82F6",
+      icon: data.icon
+    }).returning();
+    return subcategory;
+  }
+  async update(id, userId, data) {
+    const [updated] = await db.update(subcategories).set(data).where(
+      (0, import_drizzle_orm8.and)(
+        (0, import_drizzle_orm8.eq)(subcategories.id, id),
+        (0, import_drizzle_orm8.eq)(subcategories.userId, userId),
+        (0, import_drizzle_orm8.isNull)(subcategories.deletedAt)
+      )
+    ).returning();
+    return updated;
+  }
+  async softDelete(id, userId) {
+    const [deleted] = await db.update(subcategories).set({ deletedAt: /* @__PURE__ */ new Date() }).where(
+      (0, import_drizzle_orm8.and)(
+        (0, import_drizzle_orm8.eq)(subcategories.id, id),
+        (0, import_drizzle_orm8.eq)(subcategories.userId, userId),
+        (0, import_drizzle_orm8.isNull)(subcategories.deletedAt)
+      )
+    ).returning();
+    return deleted;
+  }
+  async restore(id, userId) {
+    const [restored] = await db.update(subcategories).set({ deletedAt: null }).where((0, import_drizzle_orm8.and)((0, import_drizzle_orm8.eq)(subcategories.id, id), (0, import_drizzle_orm8.eq)(subcategories.userId, userId))).returning();
+    return restored;
+  }
+};
+var subcategories_model_default = new SubcategoryModel();
+
+// src/modules/subcategories/subcategories.schema.ts
+var import_zod5 = require("zod");
+var createSubcategorySchema = import_zod5.z.object({
+  name: import_zod5.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
+  color: import_zod5.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
+  icon: import_zod5.z.string().optional(),
+  categoryId: import_zod5.z.string().uuid("ID da categoria inv\xE1lido")
+});
+var subcategorySchema = import_zod5.z.object({
+  id: import_zod5.z.string().uuid(),
+  name: import_zod5.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100),
+  color: import_zod5.z.string().regex(/^#([0-9a-fA-F]{3}){1,2}$/, "Cor inv\xE1lida").optional(),
+  icon: import_zod5.z.string().optional().nullable(),
+  categoryId: import_zod5.z.string().uuid("ID da categoria inv\xE1lido")
+});
+var updateSubcategorySchema = createSubcategorySchema.partial();
+
+// src/modules/subcategories/subcategories.controller.ts
+var SubcategoriesController = class {
+  constructor(model = new SubcategoryModel()) {
+    this.model = model;
+  }
+  list = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const { categoryId } = request.query;
+    let subcategories2;
+    if (categoryId) {
+      subcategories2 = await this.model.findByCategory(userId, categoryId);
+    } else {
+      subcategories2 = await this.model.findAll(userId);
+    }
+    return reply.send(subcategories2);
+  };
+  create = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const body = createSubcategorySchema.parse(request.body);
+    const [err, subcategory] = await catchError(
+      this.model.create(userId, body)
+    );
+    if (err) throw new AppError("Erro ao criar subcategoria", 500);
+    return reply.status(201).send(subcategory);
+  };
+  update = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const { id } = request.params;
+    const body = updateSubcategorySchema.parse(request.body);
+    const [err, updated] = await catchError(
+      this.model.update(id, userId, body)
+    );
+    if (err) throw new AppError("Erro ao atualizar subcategoria", 500);
+    if (!updated) {
+      throw new AppError("Subcategoria n\xE3o encontrada", 404);
+    }
+    return reply.send(updated);
+  };
+  delete = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const { id } = request.params;
+    const [err, deleted] = await catchError(this.model.softDelete(id, userId));
+    if (err) throw new AppError("Erro ao deletar subcategoria", 500);
+    if (!deleted) {
+      throw new AppError("Subcategoria n\xE3o encontrada", 404);
+    }
+    return reply.send({ message: "Subcategoria deletada com sucesso" });
+  };
+  restore = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const { id } = request.params;
+    const [err, restored] = await catchError(this.model.restore(id, userId));
+    if (err) throw new AppError("Erro ao restaurar subcategoria", 500);
+    if (!restored) {
+      throw new AppError("Subcategoria n\xE3o encontrada", 404);
+    }
+    return reply.send(restored);
+  };
+};
+var subcategories_controller_default = new SubcategoriesController();
+
+// src/modules/subcategories/subcategories.routes.ts
+var PUBLIC_ROUTES2 = ["/health", "/docs"];
+async function registerSubcategoriesRoutes(app) {
+  const controller = new SubcategoriesController();
+  app.addHook("onRequest", async (request, reply) => {
+    const path = request.url.split("?")[0];
+    const isPublicRoute = PUBLIC_ROUTES2.some(
+      (route) => path === route || path.startsWith(`${route}/`)
+    );
+    if (isPublicRoute) return;
+    if (!path.startsWith("/subcategories")) return;
+    try {
+      await request.jwtVerify();
+    } catch (err) {
+      reply.send(err);
+    }
+  });
+  app.get(
+    "/subcategories",
+    {
+      schema: {
+        description: "Lista subcategorias do usu\xE1rio",
+        tags: ["Subcategories"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            categoryId: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.list
+  );
+  app.post(
+    "/subcategories",
+    {
+      schema: {
+        description: "Cria uma nova subcategoria",
+        tags: ["Subcategories"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["name", "categoryId"],
+          properties: {
+            name: { type: "string" },
+            color: { type: "string" },
+            icon: { type: "string" },
+            categoryId: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.create
+  );
+  app.put(
+    "/subcategories/:id",
+    {
+      schema: {
+        description: "Atualiza uma subcategoria",
+        tags: ["Subcategories"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        },
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            color: { type: "string" },
+            icon: { type: "string" },
+            categoryId: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.update
+  );
+  app.delete(
+    "/subcategories/:id",
+    {
+      schema: {
+        description: "Soft delete de uma subcategoria",
+        tags: ["Subcategories"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.delete
+  );
+  app.patch(
+    "/subcategories/:id/restore",
+    {
+      schema: {
+        description: "Restaura uma subcategoria deletada",
+        tags: ["Subcategories"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    controller.restore
+  );
+}
+
 // src/modules/auth/auth.model.ts
 var import_bcryptjs = __toESM(require("bcryptjs"), 1);
-var import_drizzle_orm8 = require("drizzle-orm");
+var import_drizzle_orm9 = require("drizzle-orm");
 var SALT_ROUNDS = 10;
 var AuthModel = class {
   async findByEmail(email) {
-    const [user] = await db.select().from(users).where((0, import_drizzle_orm8.eq)(users.email, email)).limit(1);
+    const [user] = await db.select().from(users).where((0, import_drizzle_orm9.eq)(users.email, email)).limit(1);
     return user;
   }
   async findById(id) {
@@ -3333,11 +3557,11 @@ var AuthModel = class {
       name: users.name,
       email: users.email,
       createdAt: users.createdAt
-    }).from(users).where((0, import_drizzle_orm8.eq)(users.id, id)).limit(1);
+    }).from(users).where((0, import_drizzle_orm9.eq)(users.id, id)).limit(1);
     return user;
   }
   async findByIdWithPassword(id) {
-    const [user] = await db.select().from(users).where((0, import_drizzle_orm8.eq)(users.id, id)).limit(1);
+    const [user] = await db.select().from(users).where((0, import_drizzle_orm9.eq)(users.id, id)).limit(1);
     return user;
   }
   async verifyPassword(password, hash) {
@@ -3358,7 +3582,7 @@ var AuthModel = class {
     return user;
   }
   async updateName(id, name) {
-    const [user] = await db.update(users).set({ name }).where((0, import_drizzle_orm8.eq)(users.id, id)).returning({
+    const [user] = await db.update(users).set({ name }).where((0, import_drizzle_orm9.eq)(users.id, id)).returning({
       id: users.id,
       name: users.name,
       email: users.email,
@@ -3368,7 +3592,7 @@ var AuthModel = class {
   }
   async updatePassword(id, newPassword) {
     const hash = await import_bcryptjs.default.hash(newPassword, SALT_ROUNDS);
-    const [user] = await db.update(users).set({ password: hash }).where((0, import_drizzle_orm8.eq)(users.id, id)).returning({
+    const [user] = await db.update(users).set({ password: hash }).where((0, import_drizzle_orm9.eq)(users.id, id)).returning({
       id: users.id,
       name: users.name,
       email: users.email
@@ -3406,7 +3630,32 @@ var AuthController = class {
     }
     const [errCreate, user] = await catchError(this.authModel.createUser(body));
     if (errCreate || !user) throw new AppError("Erro ao criar usu\xE1rio", 500);
-    return reply.status(201).send({ user });
+    const expiresIn = "7d";
+    const [errToken, token] = await catchError(
+      reply.jwtSign(
+        {
+          sub: user.id,
+          email: user.email
+        },
+        { expiresIn }
+      )
+    );
+    if (errToken) throw new AppError("Erro ao gerar token", 500);
+    reply.setCookie("token", token, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 7 * 24 * 60 * 60
+    });
+    return reply.status(201).send({
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email
+      }
+    });
   };
   login = async (request, reply) => {
     const body = loginSchema.parse(request.body);
@@ -3482,7 +3731,9 @@ var AuthController = class {
     await catchError(request.jwtVerify());
     const { sub } = request.user;
     const body = request.body;
-    const [errUser, user] = await catchError(this.authModel.findByIdWithPassword(sub));
+    const [errUser, user] = await catchError(
+      this.authModel.findByIdWithPassword(sub)
+    );
     if (errUser || !user) throw new AppError("Usu\xE1rio n\xE3o encontrado", 404);
     const [errVerify, isValid] = await catchError(
       this.authModel.verifyPassword(body.currentPassword, user.password)
@@ -3496,6 +3747,22 @@ var AuthController = class {
     );
     if (errUpdate) throw new AppError("Erro ao alterar senha", 500);
     return reply.send({ message: "Senha alterada com sucesso" });
+  };
+  refreshToken = async (request, reply) => {
+    await catchError(request.jwtVerify());
+    const { sub, email } = request.user;
+    const [errToken, token] = await catchError(
+      reply.jwtSign({ sub, email }, { expiresIn: "7d" })
+    );
+    if (errToken) throw new AppError("Erro ao gerar token", 500);
+    reply.setCookie("token", token, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 7 * 24 * 60 * 60
+    });
+    return reply.send({ token });
   };
 };
 
@@ -3513,8 +3780,16 @@ async function registerAuthRoutes(app) {
           required: ["name", "email", "password"],
           properties: {
             name: { type: "string", description: "Nome do usu\xE1rio" },
-            email: { type: "string", format: "email", description: "E-mail do usu\xE1rio" },
-            password: { type: "string", minLength: 6, description: "Senha do usu\xE1rio" }
+            email: {
+              type: "string",
+              format: "email",
+              description: "E-mail do usu\xE1rio"
+            },
+            password: {
+              type: "string",
+              minLength: 6,
+              description: "Senha do usu\xE1rio"
+            }
           }
         }
       }
@@ -3531,9 +3806,16 @@ async function registerAuthRoutes(app) {
           type: "object",
           required: ["email", "password"],
           properties: {
-            email: { type: "string", format: "email", description: "E-mail do usu\xE1rio" },
+            email: {
+              type: "string",
+              format: "email",
+              description: "E-mail do usu\xE1rio"
+            },
             password: { type: "string", description: "Senha do usu\xE1rio" },
-            rememberMe: { type: "boolean", description: "Manter login por 30 dias" }
+            rememberMe: {
+              type: "boolean",
+              description: "Manter login por 30 dias"
+            }
           }
         }
       }
@@ -3596,6 +3878,17 @@ async function registerAuthRoutes(app) {
       }
     },
     authController.changePassword
+  );
+  app.post(
+    "/auth/refresh-token",
+    {
+      schema: {
+        description: "Renova o token JWT do usu\xE1rio",
+        tags: ["Auth"],
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    authController.refreshToken
   );
 }
 
@@ -3675,7 +3968,9 @@ async function registerCategoriesRoutes(app) {
   const categoriesController = new CategoriesController();
   app.addHook("onRequest", async (request, reply) => {
     const path = request.url.split("?")[0];
-    const isPublicRoute = PUBLIC_ROUTES3.some((route) => path === route || path.startsWith(route + "/"));
+    const isPublicRoute = PUBLIC_ROUTES3.some(
+      (route) => path === route || path.startsWith(`${route}/`)
+    );
     if (isPublicRoute) return;
     if (!path.startsWith("/categories")) return;
     try {
@@ -3783,10 +4078,142 @@ async function registerCategoriesRoutes(app) {
   );
 }
 
-// src/modules/payment-methods/payment-methods.schema.ts
+// src/modules/notifications/notifications.schema.ts
 var import_zod8 = require("zod");
-var createPaymentMethodSchema = import_zod8.z.object({
-  name: import_zod8.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100)
+var notificationTypeEnum2 = import_zod8.z.enum([
+  "budget_warning",
+  "budget_exceeded",
+  "goal_milestone"
+]);
+var notificationEntityTypeEnum2 = import_zod8.z.enum(["budget", "goal"]);
+var notificationResponseSchema = import_zod8.z.object({
+  id: import_zod8.z.string().uuid(),
+  type: notificationTypeEnum2,
+  title: import_zod8.z.string(),
+  body: import_zod8.z.string().nullable(),
+  entityType: notificationEntityTypeEnum2.nullable(),
+  entityId: import_zod8.z.string().uuid().nullable(),
+  isRead: import_zod8.z.boolean(),
+  createdAt: import_zod8.z.string()
+});
+var listNotificationsQuerySchema = import_zod8.z.object({
+  isRead: import_zod8.z.enum(["true", "false"]).optional().transform((val) => {
+    if (val === "true") return true;
+    if (val === "false") return false;
+    return void 0;
+  }),
+  limit: import_zod8.z.string().optional().transform(Number),
+  offset: import_zod8.z.string().optional().transform(Number)
+});
+var markAsReadSchema = import_zod8.z.object({
+  id: import_zod8.z.string().uuid()
+});
+var markAllAsReadSchema = import_zod8.z.object({});
+var deleteNotificationSchema = import_zod8.z.object({
+  id: import_zod8.z.string().uuid()
+});
+var notificationSettingsResponseSchema = import_zod8.z.object({
+  id: import_zod8.z.string().uuid(),
+  budgetWarningPct: import_zod8.z.number(),
+  budgetExceeded: import_zod8.z.boolean(),
+  goalMilestones: import_zod8.z.boolean(),
+  emailEnabled: import_zod8.z.boolean(),
+  emailAddress: import_zod8.z.string().nullable()
+});
+var updateNotificationSettingsSchema = import_zod8.z.object({
+  budgetWarningPct: import_zod8.z.number().min(1).max(100).optional(),
+  budgetExceeded: import_zod8.z.boolean().optional(),
+  goalMilestones: import_zod8.z.boolean().optional(),
+  emailEnabled: import_zod8.z.boolean().optional(),
+  emailAddress: import_zod8.z.string().email().nullable().optional()
+});
+
+// src/modules/notifications/notifications.controller.ts
+var NotificationController = class {
+  async list(request, reply) {
+    const { sub: userId } = request.user;
+    const query = listNotificationsQuerySchema.parse(request.query);
+    const { data, total } = await notificationModel.findAll(userId, {
+      isRead: query.isRead,
+      limit: query.limit || 20,
+      offset: query.offset || 0
+    });
+    return reply.send({
+      data,
+      total,
+      limit: query.limit || 20,
+      offset: query.offset || 0
+    });
+  }
+  async getUnreadCount(request, reply) {
+    const { sub: userId } = request.user;
+    const count2 = await notificationModel.countUnread(userId);
+    return reply.send({ count: count2 });
+  }
+  async markAsRead(request, reply) {
+    const { sub: userId } = request.user;
+    const { id } = markAsReadSchema.parse(request.params);
+    const notification = await notificationModel.markAsRead(id, userId);
+    if (!notification) {
+      return reply.status(404).send({ message: "Notifica\xE7\xE3o n\xE3o encontrada" });
+    }
+    return reply.send(notification);
+  }
+  async markAllAsRead(request, reply) {
+    const { sub: userId } = request.user;
+    await notificationModel.markAllAsRead(userId);
+    return reply.send({ message: "Todas as notifica\xE7\xF5es marcadas como lidas" });
+  }
+  async delete(request, reply) {
+    const { sub: userId } = request.user;
+    const { id } = deleteNotificationSchema.parse(request.params);
+    const notification = await notificationModel.delete(id, userId);
+    if (!notification) {
+      return reply.status(404).send({ message: "Notifica\xE7\xE3o n\xE3o encontrada" });
+    }
+    return reply.send(notification);
+  }
+  async getSettings(request, reply) {
+    const { sub: userId } = request.user;
+    let settings = await notificationSettingsModel.findByUserId(userId);
+    if (!settings) {
+      settings = await notificationSettingsModel.createOrUpdate(userId, {});
+    }
+    return reply.send(settings);
+  }
+  async updateSettings(request, reply) {
+    const { sub: userId } = request.user;
+    const data = updateNotificationSettingsSchema.parse(request.body);
+    const settings = await notificationSettingsModel.createOrUpdate(userId, data);
+    return reply.send(settings);
+  }
+};
+var notificationController = new NotificationController();
+
+// src/modules/notifications/notifications.routes.ts
+async function registerNotificationRoutes(app) {
+  app.addHook("onRequest", async (request, reply) => {
+    const path = request.url.split("?")[0];
+    if (!path.startsWith("/notifications")) return;
+    try {
+      await request.jwtVerify();
+    } catch (err) {
+      reply.send(err);
+    }
+  });
+  app.get("/notifications", notificationController.list.bind(notificationController));
+  app.get("/notifications/unread-count", notificationController.getUnreadCount.bind(notificationController));
+  app.patch("/notifications/:id/read", notificationController.markAsRead.bind(notificationController));
+  app.patch("/notifications/read-all", notificationController.markAllAsRead.bind(notificationController));
+  app.delete("/notifications/:id", notificationController.delete.bind(notificationController));
+  app.get("/notifications/settings", notificationController.getSettings.bind(notificationController));
+  app.put("/notifications/settings", notificationController.updateSettings.bind(notificationController));
+}
+
+// src/modules/payment-methods/payment-methods.schema.ts
+var import_zod9 = require("zod");
+var createPaymentMethodSchema = import_zod9.z.object({
+  name: import_zod9.z.string().min(1, "Nome \xE9 obrigat\xF3rio").max(100)
 });
 var updatePaymentMethodSchema = createPaymentMethodSchema.partial();
 
@@ -3863,7 +4290,9 @@ async function registerPaymentMethodsRoutes(app) {
   const PUBLIC_ROUTES4 = ["/health", "/docs"];
   app.addHook("onRequest", async (request, reply) => {
     const path = request.url.split("?")[0];
-    const isPublicRoute = PUBLIC_ROUTES4.some((route) => path === route || path.startsWith(`${route}/`));
+    const isPublicRoute = PUBLIC_ROUTES4.some(
+      (route) => path === route || path.startsWith(`${route}/`)
+    );
     if (isPublicRoute) return;
     if (!path.startsWith("/payment-methods")) return;
     try {
@@ -3967,20 +4396,20 @@ async function registerPaymentMethodsRoutes(app) {
 }
 
 // src/modules/recurring/recurring.model.ts
-var import_drizzle_orm9 = require("drizzle-orm");
+var import_drizzle_orm10 = require("drizzle-orm");
 var RecurringTransactionModel = class {
   async findAll(userId, filters) {
-    let conditions = (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId);
+    let conditions = (0, import_drizzle_orm10.eq)(recurringTransactions.userId, userId);
     if (filters?.isActive !== void 0) {
-      conditions = (0, import_drizzle_orm9.and)(
+      conditions = (0, import_drizzle_orm10.and)(
         conditions,
-        (0, import_drizzle_orm9.eq)(recurringTransactions.isActive, filters.isActive)
+        (0, import_drizzle_orm10.eq)(recurringTransactions.isActive, filters.isActive)
       );
     }
     if (filters?.type) {
-      conditions = (0, import_drizzle_orm9.and)(
+      conditions = (0, import_drizzle_orm10.and)(
         conditions,
-        (0, import_drizzle_orm9.eq)(recurringTransactions.type, filters.type)
+        (0, import_drizzle_orm10.eq)(recurringTransactions.type, filters.type)
       );
     }
     return db.select({
@@ -4010,10 +4439,10 @@ var RecurringTransactionModel = class {
       isActive: recurringTransactions.isActive,
       lastGeneratedAt: recurringTransactions.lastGeneratedAt,
       createdAt: recurringTransactions.createdAt
-    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm9.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
+    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm10.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
       paymentMethods,
-      (0, import_drizzle_orm9.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
-    ).where(conditions).orderBy((0, import_drizzle_orm9.asc)(recurringTransactions.createdAt));
+      (0, import_drizzle_orm10.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
+    ).where(conditions).orderBy((0, import_drizzle_orm10.asc)(recurringTransactions.createdAt));
   }
   async findById(id, userId) {
     const [recurring] = await db.select({
@@ -4043,13 +4472,13 @@ var RecurringTransactionModel = class {
       isActive: recurringTransactions.isActive,
       lastGeneratedAt: recurringTransactions.lastGeneratedAt,
       createdAt: recurringTransactions.createdAt
-    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm9.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
+    }).from(recurringTransactions).leftJoin(categories, (0, import_drizzle_orm10.eq)(recurringTransactions.categoryId, categories.id)).leftJoin(
       paymentMethods,
-      (0, import_drizzle_orm9.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
+      (0, import_drizzle_orm10.eq)(recurringTransactions.paymentMethodId, paymentMethods.id)
     ).where(
-      (0, import_drizzle_orm9.and)(
-        (0, import_drizzle_orm9.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm10.and)(
+        (0, import_drizzle_orm10.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm10.eq)(recurringTransactions.userId, userId)
       )
     ).limit(1);
     return recurring;
@@ -4095,9 +4524,9 @@ var RecurringTransactionModel = class {
     }
     updateData.updatedAt = /* @__PURE__ */ new Date();
     const [updated] = await db.update(recurringTransactions).set(updateData).where(
-      (0, import_drizzle_orm9.and)(
-        (0, import_drizzle_orm9.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm10.and)(
+        (0, import_drizzle_orm10.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm10.eq)(recurringTransactions.userId, userId)
       )
     ).returning();
     return updated;
@@ -4106,27 +4535,27 @@ var RecurringTransactionModel = class {
     const existing = await this.findById(id, userId);
     if (!existing) return null;
     const [updated] = await db.update(recurringTransactions).set({ isActive: !existing.isActive, updatedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm9.and)(
-        (0, import_drizzle_orm9.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm10.and)(
+        (0, import_drizzle_orm10.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm10.eq)(recurringTransactions.userId, userId)
       )
     ).returning();
     return updated;
   }
   async softDelete(id, userId) {
     const [deleted] = await db.update(recurringTransactions).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm9.and)(
-        (0, import_drizzle_orm9.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm10.and)(
+        (0, import_drizzle_orm10.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm10.eq)(recurringTransactions.userId, userId)
       )
     ).returning();
     return deleted;
   }
   async updateLastGeneratedAt(id, userId, date) {
     const [updated] = await db.update(recurringTransactions).set({ lastGeneratedAt: date, updatedAt: /* @__PURE__ */ new Date() }).where(
-      (0, import_drizzle_orm9.and)(
-        (0, import_drizzle_orm9.eq)(recurringTransactions.id, id),
-        (0, import_drizzle_orm9.eq)(recurringTransactions.userId, userId)
+      (0, import_drizzle_orm10.and)(
+        (0, import_drizzle_orm10.eq)(recurringTransactions.id, id),
+        (0, import_drizzle_orm10.eq)(recurringTransactions.userId, userId)
       )
     ).returning();
     return updated;
@@ -4134,27 +4563,27 @@ var RecurringTransactionModel = class {
 };
 
 // src/modules/recurring/recurring.schema.ts
-var import_zod9 = require("zod");
-var recurringTransactionBaseSchema = import_zod9.z.object({
-  description: import_zod9.z.string().min(1, "Descri\xE7\xE3o \xE9 obrigat\xF3ria").max(120),
-  subDescription: import_zod9.z.string().max(120).optional(),
-  amount: import_zod9.z.number().positive("O valor deve ser positivo"),
-  type: import_zod9.z.enum(["income", "expense"], {
+var import_zod10 = require("zod");
+var recurringTransactionBaseSchema = import_zod10.z.object({
+  description: import_zod10.z.string().min(1, "Descri\xE7\xE3o \xE9 obrigat\xF3ria").max(120),
+  subDescription: import_zod10.z.string().max(120).optional(),
+  amount: import_zod10.z.number().positive("O valor deve ser positivo"),
+  type: import_zod10.z.enum(["income", "expense"], {
     errorMap: () => ({ message: "O tipo deve ser income ou expense" })
   }),
-  categoryId: import_zod9.z.string().uuid("ID de categoria inv\xE1lido").optional(),
-  subcategoryId: import_zod9.z.string().uuid("ID de subcategoria inv\xE1lido").optional(),
-  paymentMethodId: import_zod9.z.string().uuid("ID de m\xE9todo de pagamento inv\xE1lido").optional(),
-  frequency: import_zod9.z.enum(["daily", "weekly", "monthly", "yearly", "custom"], {
+  categoryId: import_zod10.z.string().uuid("ID de categoria inv\xE1lido").optional(),
+  subcategoryId: import_zod10.z.string().uuid("ID de subcategoria inv\xE1lido").optional(),
+  paymentMethodId: import_zod10.z.string().uuid("ID de m\xE9todo de pagamento inv\xE1lido").optional(),
+  frequency: import_zod10.z.enum(["daily", "weekly", "monthly", "yearly", "custom"], {
     errorMap: () => ({ message: "Frequ\xEAncia inv\xE1lida" })
   }),
-  customIntervalDays: import_zod9.z.number().min(1, "Intervalo deve ser pelo menos 1 dia").max(365, "Intervalo m\xE1ximo \xE9 365 dias").optional(),
-  dayOfMonth: import_zod9.z.number().min(1, "Dia do m\xEAs deve ser entre 1 e 31").max(31, "Dia do m\xEAs deve ser entre 1 e 31"),
-  dayOfWeek: import_zod9.z.number().min(0).max(6).optional(),
-  startDate: import_zod9.z.string().datetime({
+  customIntervalDays: import_zod10.z.number().min(1, "Intervalo deve ser pelo menos 1 dia").max(365, "Intervalo m\xE1ximo \xE9 365 dias").optional(),
+  dayOfMonth: import_zod10.z.number().min(1, "Dia do m\xEAs deve ser entre 1 e 31").max(31, "Dia do m\xEAs deve ser entre 1 e 31"),
+  dayOfWeek: import_zod10.z.number().min(0).max(6).optional(),
+  startDate: import_zod10.z.string().datetime({
     message: "Data inicial deve ser ISO 8601 v\xE1lida"
   }),
-  endDate: import_zod9.z.string().datetime({ message: "Data final deve ser ISO 8601 v\xE1lida" }).optional()
+  endDate: import_zod10.z.string().datetime({ message: "Data final deve ser ISO 8601 v\xE1lida" }).optional()
 });
 var createRecurringTransactionSchema = recurringTransactionBaseSchema.refine(
   (data) => {
@@ -4169,9 +4598,9 @@ var createRecurringTransactionSchema = recurringTransactionBaseSchema.refine(
   }
 );
 var updateRecurringTransactionSchema = recurringTransactionBaseSchema.partial();
-var listRecurringTransactionsSchema = import_zod9.z.object({
-  isActive: import_zod9.z.boolean().optional(),
-  type: import_zod9.z.enum(["income", "expense"]).optional()
+var listRecurringTransactionsSchema = import_zod10.z.object({
+  isActive: import_zod10.z.boolean().optional(),
+  type: import_zod10.z.enum(["income", "expense"]).optional()
 });
 
 // src/modules/recurring/recurring.controller.ts
@@ -4381,7 +4810,9 @@ async function registerRecurringRoutes(app) {
   const PUBLIC_ROUTES4 = ["/health", "/docs"];
   app.addHook("onRequest", async (request, reply) => {
     const path = request.url.split("?")[0];
-    const isPublicRoute = PUBLIC_ROUTES4.some((route) => path === route || path.startsWith(route + "/"));
+    const isPublicRoute = PUBLIC_ROUTES4.some(
+      (route) => path === route || path.startsWith(`${route}/`)
+    );
     if (isPublicRoute) return;
     if (!path.startsWith("/recurring")) return;
     try {
@@ -4549,7 +4980,7 @@ async function registerRecurringRoutes(app) {
 }
 
 // src/modules/summary/summary.model.ts
-var import_drizzle_orm10 = require("drizzle-orm");
+var import_drizzle_orm11 = require("drizzle-orm");
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -4613,39 +5044,39 @@ function resolveRange(filters) {
 }
 var SummaryModel = class {
   async getMetaCategoryId(userId) {
-    const [metaCategory] = await db.select({ id: categories.id }).from(categories).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(categories.userId, userId), (0, import_drizzle_orm10.eq)(categories.name, "Meta"))).limit(1);
+    const [metaCategory] = await db.select({ id: categories.id }).from(categories).where((0, import_drizzle_orm11.and)((0, import_drizzle_orm11.eq)(categories.userId, userId), (0, import_drizzle_orm11.eq)(categories.name, "Meta"))).limit(1);
     return metaCategory?.id ?? null;
   }
   async getSummary(userId, filters = {}) {
     const range = resolveRange(filters);
     const metaCategoryId = await this.getMetaCategoryId(userId);
-    const balanceConditions = (0, import_drizzle_orm10.and)(
-      (0, import_drizzle_orm10.eq)(transactions.userId, userId),
-      (0, import_drizzle_orm10.gte)(transactions.date, range.start),
-      (0, import_drizzle_orm10.lt)(transactions.date, range.endExclusive)
+    const balanceConditions = (0, import_drizzle_orm11.and)(
+      (0, import_drizzle_orm11.eq)(transactions.userId, userId),
+      (0, import_drizzle_orm11.gte)(transactions.date, range.start),
+      (0, import_drizzle_orm11.lt)(transactions.date, range.endExclusive)
     );
-    const balanceConditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm10.and)(balanceConditions, (0, import_drizzle_orm10.ne)(transactions.categoryId, metaCategoryId)) : balanceConditions;
+    const balanceConditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm11.and)(balanceConditions, (0, import_drizzle_orm11.ne)(transactions.categoryId, metaCategoryId)) : balanceConditions;
     const [balanceResult] = await db.select({
-      total: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE -${transactions.amount} END), 0)`
+      total: import_drizzle_orm11.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE -${transactions.amount} END), 0)`
     }).from(transactions).where(balanceConditionsWithFilter);
-    const currentConditions = (0, import_drizzle_orm10.and)(
-      (0, import_drizzle_orm10.eq)(transactions.userId, userId),
-      (0, import_drizzle_orm10.gte)(transactions.date, range.start),
-      (0, import_drizzle_orm10.lt)(transactions.date, range.endExclusive)
+    const currentConditions = (0, import_drizzle_orm11.and)(
+      (0, import_drizzle_orm11.eq)(transactions.userId, userId),
+      (0, import_drizzle_orm11.gte)(transactions.date, range.start),
+      (0, import_drizzle_orm11.lt)(transactions.date, range.endExclusive)
     );
-    const currentConditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm10.and)(currentConditions, (0, import_drizzle_orm10.ne)(transactions.categoryId, metaCategoryId)) : currentConditions;
+    const currentConditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm11.and)(currentConditions, (0, import_drizzle_orm11.ne)(transactions.categoryId, metaCategoryId)) : currentConditions;
     const [currentMonthTotals] = await db.select({
-      income: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
-      expense: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+      income: import_drizzle_orm11.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
+      expense: import_drizzle_orm11.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
     }).from(transactions).where(currentConditionsWithFilter);
-    const previousConditions = (0, import_drizzle_orm10.and)(
-      (0, import_drizzle_orm10.eq)(transactions.userId, userId),
-      (0, import_drizzle_orm10.gte)(transactions.date, range.previousStart),
-      (0, import_drizzle_orm10.lt)(transactions.date, range.previousEndExclusive)
+    const previousConditions = (0, import_drizzle_orm11.and)(
+      (0, import_drizzle_orm11.eq)(transactions.userId, userId),
+      (0, import_drizzle_orm11.gte)(transactions.date, range.previousStart),
+      (0, import_drizzle_orm11.lt)(transactions.date, range.previousEndExclusive)
     );
-    const previousConditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm10.and)(previousConditions, (0, import_drizzle_orm10.ne)(transactions.categoryId, metaCategoryId)) : previousConditions;
+    const previousConditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm11.and)(previousConditions, (0, import_drizzle_orm11.ne)(transactions.categoryId, metaCategoryId)) : previousConditions;
     const [previousMonthTotals] = await db.select({
-      expense: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+      expense: import_drizzle_orm11.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
     }).from(transactions).where(previousConditionsWithFilter);
     const expenseChange = previousMonthTotals.expense > 0 ? (currentMonthTotals.expense - previousMonthTotals.expense) / previousMonthTotals.expense * 100 : 0;
     return {
@@ -4657,16 +5088,16 @@ var SummaryModel = class {
   }
   async getMonthlySummary(userId) {
     const metaCategoryId = await this.getMetaCategoryId(userId);
-    const conditions = (0, import_drizzle_orm10.and)(
-      (0, import_drizzle_orm10.eq)(transactions.userId, userId),
-      import_drizzle_orm10.sql`${transactions.date} >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'`
+    const conditions = (0, import_drizzle_orm11.and)(
+      (0, import_drizzle_orm11.eq)(transactions.userId, userId),
+      import_drizzle_orm11.sql`${transactions.date} >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'`
     );
-    const conditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm10.and)(conditions, (0, import_drizzle_orm10.ne)(transactions.categoryId, metaCategoryId)) : conditions;
+    const conditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm11.and)(conditions, (0, import_drizzle_orm11.ne)(transactions.categoryId, metaCategoryId)) : conditions;
     const result = await db.select({
-      month: import_drizzle_orm10.sql`to_char(${transactions.date}, 'YYYY-MM')`,
-      income: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
-      expense: import_drizzle_orm10.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
-    }).from(transactions).where(conditionsWithFilter).groupBy(import_drizzle_orm10.sql`to_char(${transactions.date}, 'YYYY-MM')`).orderBy(import_drizzle_orm10.sql`to_char(${transactions.date}, 'YYYY-MM')`);
+      month: import_drizzle_orm11.sql`to_char(${transactions.date}, 'YYYY-MM')`,
+      income: import_drizzle_orm11.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
+      expense: import_drizzle_orm11.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+    }).from(transactions).where(conditionsWithFilter).groupBy(import_drizzle_orm11.sql`to_char(${transactions.date}, 'YYYY-MM')`).orderBy(import_drizzle_orm11.sql`to_char(${transactions.date}, 'YYYY-MM')`);
     return result.map((r) => ({
       month: r.month,
       income: Number(r.income),
@@ -4678,19 +5109,19 @@ var SummaryModel = class {
     const range = resolveRange(filters);
     const transactionType = filters.type || "expense";
     const metaCategoryId = await this.getMetaCategoryId(userId);
-    const conditions = (0, import_drizzle_orm10.and)(
-      (0, import_drizzle_orm10.eq)(transactions.userId, userId),
-      (0, import_drizzle_orm10.eq)(transactions.type, transactionType),
-      (0, import_drizzle_orm10.gte)(transactions.date, range.start),
-      (0, import_drizzle_orm10.lt)(transactions.date, range.endExclusive)
+    const conditions = (0, import_drizzle_orm11.and)(
+      (0, import_drizzle_orm11.eq)(transactions.userId, userId),
+      (0, import_drizzle_orm11.eq)(transactions.type, transactionType),
+      (0, import_drizzle_orm11.gte)(transactions.date, range.start),
+      (0, import_drizzle_orm11.lt)(transactions.date, range.endExclusive)
     );
-    const conditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm10.and)(conditions, (0, import_drizzle_orm10.ne)(transactions.categoryId, metaCategoryId)) : conditions;
+    const conditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm11.and)(conditions, (0, import_drizzle_orm11.ne)(transactions.categoryId, metaCategoryId)) : conditions;
     const expenses = await db.select({
       categoryId: transactions.categoryId,
       categoryName: categories.name,
       color: categories.color,
-      total: import_drizzle_orm10.sql`SUM(${transactions.amount})`
-    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm10.eq)(transactions.categoryId, categories.id)).where(conditionsWithFilter).groupBy(transactions.categoryId, categories.name, categories.color).orderBy((0, import_drizzle_orm10.desc)(import_drizzle_orm10.sql`SUM(${transactions.amount})`));
+      total: import_drizzle_orm11.sql`SUM(${transactions.amount})`
+    }).from(transactions).leftJoin(categories, (0, import_drizzle_orm11.eq)(transactions.categoryId, categories.id)).where(conditionsWithFilter).groupBy(transactions.categoryId, categories.name, categories.color).orderBy((0, import_drizzle_orm11.desc)(import_drizzle_orm11.sql`SUM(${transactions.amount})`));
     const totalExpense = expenses.reduce(
       (acc, curr) => acc + Number(curr.total),
       0
@@ -4703,15 +5134,173 @@ var SummaryModel = class {
       percentage: totalExpense > 0 ? Number((Number(e.total) / totalExpense * 100).toFixed(1)) : 0
     }));
   }
+  getNextOccurrences(recurring, startDate, endDate) {
+    const occurrences = [];
+    const frequency = recurring.frequency;
+    const currentDate = new Date(startDate);
+    while (currentDate <= endDate) {
+      let shouldAdd = false;
+      switch (frequency) {
+        case "daily":
+          shouldAdd = true;
+          currentDate.setDate(currentDate.getDate() + 1);
+          break;
+        case "weekly": {
+          const dayOfWeek = Number(recurring.dayOfWeek);
+          if (currentDate.getDay() === dayOfWeek) {
+            shouldAdd = true;
+          }
+          currentDate.setDate(currentDate.getDate() + 1);
+          break;
+        }
+        case "monthly": {
+          const dayOfMonth = Number(recurring.dayOfMonth);
+          const lastDayOfMonth = new Date(
+            currentDate.getFullYear(),
+            currentDate.getMonth() + 1,
+            0
+          ).getDate();
+          const targetDay = Math.min(dayOfMonth, lastDayOfMonth);
+          if (currentDate.getDate() === targetDay) {
+            shouldAdd = true;
+          }
+          currentDate.setMonth(currentDate.getMonth() + 1);
+          currentDate.setDate(1);
+          break;
+        }
+        case "yearly": {
+          const dayOfMonth = Number(recurring.dayOfMonth);
+          if (currentDate.getMonth() === 0 && currentDate.getDate() === dayOfMonth) {
+            shouldAdd = true;
+          }
+          currentDate.setFullYear(currentDate.getFullYear() + 1);
+          break;
+        }
+        case "custom": {
+          shouldAdd = true;
+          const interval = Number(recurring.dayOfWeek) || 1;
+          currentDate.setDate(currentDate.getDate() + interval);
+          break;
+        }
+        default:
+          currentDate.setDate(currentDate.getDate() + 1);
+      }
+      if (shouldAdd && currentDate <= endDate) {
+        if (recurring.startDate && currentDate < recurring.startDate) continue;
+        if (recurring.endDate && currentDate > recurring.endDate) break;
+        occurrences.push(new Date(currentDate));
+      }
+    }
+    return occurrences;
+  }
+  async getForecast(userId, month, year) {
+    const now = /* @__PURE__ */ new Date();
+    const targetMonth = month ?? now.getMonth() + 1;
+    const targetYear = year ?? now.getFullYear();
+    const monthStart = new Date(targetYear, targetMonth - 1, 1);
+    const monthEnd = new Date(targetYear, targetMonth, 0, 23, 59, 59);
+    const today = /* @__PURE__ */ new Date();
+    today.setHours(0, 0, 0, 0);
+    const metaCategoryId = await this.getMetaCategoryId(userId);
+    const currentConditions = (0, import_drizzle_orm11.and)(
+      (0, import_drizzle_orm11.eq)(transactions.userId, userId),
+      (0, import_drizzle_orm11.gte)(transactions.date, monthStart),
+      (0, import_drizzle_orm11.lt)(transactions.date, monthEnd)
+    );
+    const currentConditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm11.and)(currentConditions, (0, import_drizzle_orm11.ne)(transactions.categoryId, metaCategoryId)) : currentConditions;
+    const [currentTotals] = await db.select({
+      income: import_drizzle_orm11.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
+      expense: import_drizzle_orm11.sql`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`
+    }).from(transactions).where(currentConditionsWithFilter);
+    const currentIncome = Number(currentTotals.income);
+    const currentExpense = Number(currentTotals.expense);
+    const recurringModel = new RecurringTransactionModel();
+    const activeRecurring = await recurringModel.findAll(userId, {
+      isActive: true
+    });
+    const upcomingRecurring = [];
+    let projectedIncome = currentIncome;
+    let projectedExpense = currentExpense;
+    for (const recurring of activeRecurring) {
+      const occurrences = this.getNextOccurrences(
+        recurring,
+        today,
+        monthEnd
+      );
+      for (const occurrence of occurrences) {
+        const amount = Number(recurring.amount);
+        if (recurring.type === "income") {
+          projectedIncome += amount;
+        } else {
+          projectedExpense += amount;
+        }
+        upcomingRecurring.push({
+          description: recurring.description,
+          amount,
+          type: recurring.type,
+          expectedDate: occurrence.toISOString().split("T")[0]
+        });
+      }
+    }
+    const historicalMonths = await this.getHistoricalAverage(userId, 3);
+    const hasEnoughHistory = historicalMonths >= 3;
+    const confidence = hasEnoughHistory ? "high" : "low";
+    return {
+      currentIncome,
+      currentExpense,
+      projectedIncome,
+      projectedExpense,
+      projectedBalance: projectedIncome - projectedExpense,
+      recurringUpcoming: upcomingRecurring.sort(
+        (a, b) => a.expectedDate.localeCompare(b.expectedDate)
+      ),
+      confidence
+    };
+  }
+  async getHistoricalAverage(userId, months) {
+    const now = /* @__PURE__ */ new Date();
+    let historicalCount = 0;
+    for (let i = 1; i <= months; i++) {
+      const checkDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthStart = new Date(
+        checkDate.getFullYear(),
+        checkDate.getMonth(),
+        1
+      );
+      const monthEnd = new Date(
+        checkDate.getFullYear(),
+        checkDate.getMonth() + 1,
+        0
+      );
+      const metaCategoryId = await this.getMetaCategoryId(userId);
+      const conditions = (0, import_drizzle_orm11.and)(
+        (0, import_drizzle_orm11.eq)(transactions.userId, userId),
+        (0, import_drizzle_orm11.gte)(transactions.date, monthStart),
+        (0, import_drizzle_orm11.lt)(transactions.date, monthEnd)
+      );
+      const conditionsWithFilter = metaCategoryId ? (0, import_drizzle_orm11.and)(conditions, (0, import_drizzle_orm11.ne)(transactions.categoryId, metaCategoryId)) : conditions;
+      const [result] = await db.select({
+        count: import_drizzle_orm11.sql`COUNT(DISTINCT DATE(${transactions.date}))`
+      }).from(transactions).where(conditionsWithFilter);
+      if (Number(result.count) > 0) {
+        historicalCount++;
+      }
+    }
+    return historicalCount;
+  }
 };
 
 // src/modules/summary/summary.schema.ts
-var import_zod10 = require("zod");
-var summaryPeriodSchema = import_zod10.z.enum(["7d", "30d", "month", "previous"]);
-var summaryQuerySchema = import_zod10.z.object({
-  month: import_zod10.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
+var import_zod11 = require("zod");
+var summaryPeriodSchema = import_zod11.z.enum(["7d", "30d", "month", "previous"]);
+var summaryQuerySchema = import_zod11.z.object({
+  month: import_zod11.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
   period: summaryPeriodSchema.optional(),
-  type: import_zod10.z.enum(["income", "expense"]).optional()
+  type: import_zod11.z.enum(["income", "expense"]).optional()
+});
+var forecastQuerySchema = import_zod11.z.object({
+  month: import_zod11.z.coerce.number().int().min(1).max(12).optional(),
+  year: import_zod11.z.coerce.number().int().min(2020).optional()
 });
 
 // src/modules/summary/summary.controller.ts
@@ -4745,6 +5334,15 @@ var SummaryController = class {
     if (err) throw new AppError("Erro ao obter resumo por categoria", 500);
     return reply.send(byCategory);
   };
+  getForecast = async (request, reply) => {
+    const { sub: userId } = request.user;
+    const { month, year } = forecastQuerySchema.parse(request.query);
+    const [err, forecast] = await catchError(
+      this.summaryModel.getForecast(userId, month, year)
+    );
+    if (err) throw new AppError("Erro ao obter previs\xE3o", 500);
+    return reply.send(forecast);
+  };
 };
 
 // src/modules/summary/summary.routes.ts
@@ -4753,7 +5351,9 @@ async function registerSummaryRoutes(app) {
   const PUBLIC_ROUTES4 = ["/health", "/docs"];
   app.addHook("onRequest", async (request, reply) => {
     const path = request.url.split("?")[0];
-    const isPublicRoute = PUBLIC_ROUTES4.some((route) => path === route || path.startsWith(route + "/"));
+    const isPublicRoute = PUBLIC_ROUTES4.some(
+      (route) => path === route || path.startsWith(`${route}/`)
+    );
     if (isPublicRoute) return;
     if (!path.startsWith("/summary")) return;
     try {
@@ -4814,32 +5414,55 @@ async function registerSummaryRoutes(app) {
     },
     summaryController.getByCategorySummary
   );
+  app.get(
+    "/summary/forecast",
+    {
+      schema: {
+        description: "Retorna a previs\xE3o de fechamento do m\xEAs",
+        tags: ["Summary"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            month: {
+              type: "integer",
+              minimum: 1,
+              maximum: 12,
+              description: "M\xEAs (1-12)"
+            },
+            year: { type: "integer", minimum: 2020, description: "Ano" }
+          }
+        }
+      }
+    },
+    summaryController.getForecast
+  );
 }
 
 // src/modules/transactions/transactions.schema.ts
-var import_zod11 = require("zod");
-var createTransactionSchema = import_zod11.z.object({
-  description: import_zod11.z.string().min(1, "Descri\xE7\xE3o \xE9 obrigat\xF3ria").max(120),
-  subDescription: import_zod11.z.string().max(120).optional(),
-  amount: import_zod11.z.number().positive("O valor deve ser positivo"),
-  type: import_zod11.z.enum(["income", "expense"], {
+var import_zod12 = require("zod");
+var createTransactionSchema = import_zod12.z.object({
+  description: import_zod12.z.string().min(1, "Descri\xE7\xE3o \xE9 obrigat\xF3ria").max(120),
+  subDescription: import_zod12.z.string().max(120).optional(),
+  amount: import_zod12.z.number().positive("O valor deve ser positivo"),
+  type: import_zod12.z.enum(["income", "expense"], {
     errorMap: () => ({ message: "O tipo deve ser income ou expense" })
   }),
-  date: import_zod11.z.string().min(1, "Data \xE9 obrigat\xF3ria"),
-  categoryId: import_zod11.z.string().uuid("ID de categoria inv\xE1lido").optional(),
-  subcategoryId: import_zod11.z.string().uuid("ID de subcategoria inv\xE1lido").optional(),
-  paymentMethodId: import_zod11.z.string().uuid("ID de m\xE9todo de pagamento inv\xE1lido").optional()
+  date: import_zod12.z.string().min(1, "Data \xE9 obrigat\xF3ria"),
+  categoryId: import_zod12.z.string().uuid("ID de categoria inv\xE1lido").optional(),
+  subcategoryId: import_zod12.z.string().uuid("ID de subcategoria inv\xE1lido").optional(),
+  paymentMethodId: import_zod12.z.string().uuid("ID de m\xE9todo de pagamento inv\xE1lido").optional()
 });
 var updateTransactionSchema = createTransactionSchema.partial();
-var listTransactionsSchema = import_zod11.z.object({
-  month: import_zod11.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
-  type: import_zod11.z.enum(["income", "expense"]).optional(),
-  categoryId: import_zod11.z.string().uuid().optional(),
-  paymentMethodId: import_zod11.z.string().uuid().optional(),
-  startDate: import_zod11.z.string().datetime({ message: "startDate deve ser ISO 8601 v\xE1lida" }).optional(),
-  endDate: import_zod11.z.string().datetime({ message: "endDate deve ser ISO 8601 v\xE1lida" }).optional(),
-  page: import_zod11.z.coerce.number().min(1).default(1),
-  limit: import_zod11.z.coerce.number().min(1).max(100).default(10)
+var listTransactionsSchema = import_zod12.z.object({
+  month: import_zod12.z.string().regex(/^\d{4}-\d{2}$/, "Formato de m\xEAs inv\xE1lido (esperado: YYYY-MM)").optional(),
+  type: import_zod12.z.enum(["income", "expense"]).optional(),
+  categoryId: import_zod12.z.string().uuid().optional(),
+  paymentMethodId: import_zod12.z.string().uuid().optional(),
+  startDate: import_zod12.z.string().datetime({ message: "startDate deve ser ISO 8601 v\xE1lida" }).optional(),
+  endDate: import_zod12.z.string().datetime({ message: "endDate deve ser ISO 8601 v\xE1lida" }).optional(),
+  page: import_zod12.z.coerce.number().min(1).default(1),
+  limit: import_zod12.z.coerce.number().min(1).max(100).default(10)
 });
 
 // src/modules/transactions/transactions.controller.ts
@@ -4848,6 +5471,24 @@ var TransactionsController = class {
     this.transactionModel = transactionModel2;
     this.categoryModel = categoryModel;
     this.paymentMethodModel = paymentMethodModel;
+  }
+  async checkBudgetNotifications(userId, categoryId, subcategoryId) {
+    const transactionDate = /* @__PURE__ */ new Date();
+    const month = transactionDate.getMonth() + 1;
+    const year = transactionDate.getFullYear();
+    const budgetsWithCategory = await budgets_model_default.getWithCategory(userId, month, year);
+    const relevantBudget = budgetsWithCategory.find(
+      (b) => b.categoryId === categoryId && (subcategoryId ? b.subcategoryId === subcategoryId : !b.subcategoryId)
+    );
+    if (relevantBudget) {
+      triggerBudgetNotification({
+        userId,
+        budgetId: relevantBudget.id,
+        categoryName: relevantBudget.categoryName,
+        usedAmount: relevantBudget.spent,
+        budgetAmount: relevantBudget.amount
+      }).catch((err) => console.error("[notification] budget trigger failed:", err));
+    }
   }
   listTransactions = async (request, reply) => {
     const { sub: userId } = request.user;
@@ -4892,6 +5533,9 @@ var TransactionsController = class {
       this.transactionModel.createTransaction(userId, body)
     );
     if (errCreate) throw new AppError("Erro ao criar transa\xE7\xE3o", 500);
+    if (body.type === "expense" && body.categoryId) {
+      this.checkBudgetNotifications(userId, body.categoryId, body.subcategoryId || null);
+    }
     return reply.status(201).send(transaction);
   };
   updateTransaction = async (request, reply) => {
@@ -4925,6 +5569,9 @@ var TransactionsController = class {
     );
     if (errReload)
       throw new AppError("Erro ao carregar transa\xE7\xE3o atualizada", 500);
+    if (reloaded && reloaded.type === "expense" && reloaded.categoryId) {
+      this.checkBudgetNotifications(userId, reloaded.categoryId, reloaded.subcategoryId);
+    }
     return reply.send(reloaded);
   };
   deleteTransaction = async (request, reply) => {
@@ -4947,7 +5594,9 @@ async function registerTransactionsRoutes(app) {
   const PUBLIC_ROUTES4 = ["/health", "/docs"];
   app.addHook("onRequest", async (request, reply) => {
     const path = request.url.split("?")[0];
-    const isPublicRoute = PUBLIC_ROUTES4.some((route) => path === route || path.startsWith(`${route}/`));
+    const isPublicRoute = PUBLIC_ROUTES4.some(
+      (route) => path === route || path.startsWith(`${route}/`)
+    );
     if (isPublicRoute) return;
     if (!path.startsWith("/transactions")) return;
     try {
@@ -5073,6 +5722,7 @@ async function registerRoutes(app) {
   }));
   await app.register(registerAuthRoutes);
   await app.register(registerCategoriesRoutes);
+  await app.register(registerNotificationRoutes);
   await app.register(registerPaymentMethodsRoutes);
   await app.register(registerRecurringRoutes);
   await app.register(registerTransactionsRoutes);
@@ -5105,6 +5755,7 @@ async function buildApp() {
         description: "API para controle financeiro pessoal"
       },
       servers: [
+        { url: env.API_URL, description: "Servidor de produ\xE7\xE3o" },
         { url: "http://localhost:3000", description: "Servidor local" }
       ],
       components: {

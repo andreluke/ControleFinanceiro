@@ -3,9 +3,9 @@ import { AppError } from "../../errors/AppError";
 import { catchError } from "../../utils/catchError";
 import BudgetsModel from "./budgets.model";
 import {
+	budgetQuerySchema,
 	createBudgetSchema,
 	updateBudgetSchema,
-	budgetQuerySchema,
 } from "./budgets.schema";
 
 export class BudgetsController {
@@ -125,10 +125,7 @@ export class BudgetsController {
 		}
 
 		if (!existing.isRecurring) {
-			throw new AppError(
-				"Só é possível desativar orçamentos recorrentes",
-				400,
-			);
+			throw new AppError("Só é possível desativar orçamentos recorrentes", 400);
 		}
 
 		const [err, toggled] = await catchError(
@@ -173,12 +170,13 @@ export class BudgetsController {
 			);
 
 			const remainingSubcategoryBudgets = allBudgets.filter(
-				(b) => b.categoryId === deletedCategoryId && b.subcategoryId && b.id !== id
+				(b) =>
+					b.categoryId === deletedCategoryId && b.subcategoryId && b.id !== id,
 			);
 
 			if (remainingSubcategoryBudgets.length === 0) {
 				const parentBudget = allBudgets.find(
-					(b) => b.categoryId === deletedCategoryId && !b.subcategoryId
+					(b) => b.categoryId === deletedCategoryId && !b.subcategoryId,
 				);
 
 				if (parentBudget && Number(parentBudget.amount) === 0) {

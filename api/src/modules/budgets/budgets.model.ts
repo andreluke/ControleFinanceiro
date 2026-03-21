@@ -1,7 +1,18 @@
 import { and, desc, eq, gte, lte, or, sql, sum } from "drizzle-orm";
 import { db } from "../../drizzle/client";
-import { budgets, categories, subcategories, transactions } from "../../drizzle/schema";
-import type { Budget, BudgetWithCategory, BudgetSummary, CreateBudgetInput, UpdateBudgetInput } from "./budgets.types";
+import {
+	budgets,
+	categories,
+	subcategories,
+	transactions,
+} from "../../drizzle/schema";
+import type {
+	Budget,
+	BudgetSummary,
+	BudgetWithCategory,
+	CreateBudgetInput,
+	UpdateBudgetInput,
+} from "./budgets.types";
 
 function toNumber(value: unknown): number {
 	if (typeof value === "number") return value;
@@ -49,13 +60,16 @@ export class BudgetsModel {
 
 	async create(data: CreateBudgetInput & { userId: string }): Promise<Budget> {
 		const isSubcategory = !!data.subcategoryId;
-		const baseAmount = isSubcategory ? 0 : data.baseAmount ?? data.amount;
+		const baseAmount = isSubcategory ? 0 : (data.baseAmount ?? data.amount);
 		let amount = isSubcategory ? data.amount : data.amount;
 
 		let existingSubcategoriesTotal = 0;
 		if (!isSubcategory) {
 			const existingBudgets = await db
-				.select({ amount: budgets.amount, subcategoryId: budgets.subcategoryId })
+				.select({
+					amount: budgets.amount,
+					subcategoryId: budgets.subcategoryId,
+				})
 				.from(budgets)
 				.where(
 					and(
@@ -66,7 +80,10 @@ export class BudgetsModel {
 					),
 				);
 			const existingSubs = existingBudgets.filter((b) => b.subcategoryId);
-			existingSubcategoriesTotal = existingSubs.reduce((sum, b) => sum + toNumber(b.amount), 0);
+			existingSubcategoriesTotal = existingSubs.reduce(
+				(sum, b) => sum + toNumber(b.amount),
+				0,
+			);
 			amount = baseAmount + existingSubcategoriesTotal;
 		}
 
@@ -142,12 +159,7 @@ export class BudgetsModel {
 		return db
 			.select()
 			.from(budgets)
-			.where(
-				and(
-					eq(budgets.userId, userId),
-					eq(budgets.isRecurring, true),
-				),
-			);
+			.where(and(eq(budgets.userId, userId), eq(budgets.isRecurring, true)));
 	}
 
 	async ensureRecurringBudgetsExist(
@@ -184,20 +196,18 @@ export class BudgetsModel {
 				.where(eq(budgets.id, groupId))
 				.limit(1);
 
-			await db
-				.insert(budgets)
-				.values({
-					userId,
-					categoryId: templateBudget.categoryId,
-					subcategoryId: templateBudget.subcategoryId,
-					amount: templateBudget.amount,
-					baseAmount: templateBudget.baseAmount,
-					month: String(month),
-					year: String(year),
-					isRecurring: true,
-					isActive: isActive?.isActive ?? true,
-					recurringGroupId: groupId,
-				});
+			await db.insert(budgets).values({
+				userId,
+				categoryId: templateBudget.categoryId,
+				subcategoryId: templateBudget.subcategoryId,
+				amount: templateBudget.amount,
+				baseAmount: templateBudget.baseAmount,
+				month: String(month),
+				year: String(year),
+				isRecurring: true,
+				isActive: isActive?.isActive ?? true,
+				recurringGroupId: groupId,
+			});
 		}
 	}
 
@@ -245,7 +255,10 @@ export class BudgetsModel {
 		const subcategoriesTotalByCategory = new Map<string, number>();
 		for (const sub of subcategoryBudgets) {
 			const current = subcategoriesTotalByCategory.get(sub.categoryId) || 0;
-			subcategoriesTotalByCategory.set(sub.categoryId, current + toNumber(sub.amount));
+			subcategoriesTotalByCategory.set(
+				sub.categoryId,
+				current + toNumber(sub.amount),
+			);
 		}
 
 		const budgetsWithSpent: BudgetWithCategory[] = await Promise.all(
@@ -272,7 +285,9 @@ export class BudgetsModel {
 
 				const spent = toNumber(result?.total);
 				const percentage = amountNum > 0 ? (spent / amountNum) * 100 : 0;
-				const subcategoriesTotal = !budget.subcategoryId ? (subcategoriesTotalByCategory.get(budget.categoryId) || 0) : undefined;
+				const subcategoriesTotal = !budget.subcategoryId
+					? subcategoriesTotalByCategory.get(budget.categoryId) || 0
+					: undefined;
 
 				return {
 					id: budget.id,
@@ -302,7 +317,11 @@ export class BudgetsModel {
 		return budgetsWithSpent;
 	}
 
-	async getSummary(userId: string, month: number, year: number): Promise<BudgetSummary> {
+	async getSummary(
+		userId: string,
+		month: number,
+		year: number,
+	): Promise<BudgetSummary> {
 		const budgetsWithCategory = await this.getWithCategory(userId, month, year);
 
 		const parentBudgets = budgetsWithCategory.filter((b) => !b.subcategoryId);
@@ -396,12 +415,11 @@ export class BudgetsModel {
 				}
 
 				return { ...updated, recurringGroupId: newGroupId };
-			} else {
-				updateData.isRecurring = data.isRecurring;
+			}
+			updateData.isRecurring = data.isRecurring;
 
-				if (!data.isRecurring) {
-					updateData.recurringGroupId = null as unknown as string;
-				}
+			if (!data.isRecurring) {
+				updateData.recurringGroupId = null as unknown as string;
 			}
 		}
 
@@ -483,7 +501,7 @@ export class BudgetsModel {
 
 	async delete(id: string): Promise<boolean> {
 		const budget = await this.findById(id);
-		
+
 		const result = await db.delete(budgets).where(eq(budgets.id, id));
 		const rowCount = (result as { rowCount?: number }).rowCount;
 

@@ -23,7 +23,10 @@ export async function registerSeedDashboardRoutes(app: FastifyInstance) {
 				querystring: {
 					type: "object",
 					properties: {
-						startDate: { type: "string", description: "Data inicial (YYYY-MM-DD)" },
+						startDate: {
+							type: "string",
+							description: "Data inicial (YYYY-MM-DD)",
+						},
 						endDate: { type: "string", description: "Data final (YYYY-MM-DD)" },
 					},
 				},
@@ -42,7 +45,10 @@ export async function registerSeedDashboardRoutes(app: FastifyInstance) {
 				querystring: {
 					type: "object",
 					properties: {
-						startDate: { type: "string", description: "Data inicial (YYYY-MM-DD)" },
+						startDate: {
+							type: "string",
+							description: "Data inicial (YYYY-MM-DD)",
+						},
 						endDate: { type: "string", description: "Data final (YYYY-MM-DD)" },
 					},
 				},
@@ -61,7 +67,10 @@ export async function registerSeedDashboardRoutes(app: FastifyInstance) {
 				querystring: {
 					type: "object",
 					properties: {
-						startDate: { type: "string", description: "Data inicial (YYYY-MM-DD)" },
+						startDate: {
+							type: "string",
+							description: "Data inicial (YYYY-MM-DD)",
+						},
 						endDate: { type: "string", description: "Data final (YYYY-MM-DD)" },
 					},
 				},

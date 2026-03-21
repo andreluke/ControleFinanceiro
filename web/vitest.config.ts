@@ -12,8 +12,11 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'happy-dom',
-    setupFiles: ['./src/test/setup.ts'],
+    setupFiles: ['./src/test/setup.ts', './src/test/mocks/server.ts'],
     css: true,
+    typecheck: {
+      tsconfig: './tsconfig.test.json',
+    },
   },
   server: {
     port: 8080,

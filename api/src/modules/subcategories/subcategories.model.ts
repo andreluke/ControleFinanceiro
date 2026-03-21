@@ -1,7 +1,11 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "../../drizzle/client";
 import { categories, subcategories } from "../../drizzle/schema";
-import type { CreateSubcategoryInput, Subcategory, UpdateSubcategoryInput } from "./subcategories.schema";
+import type {
+	CreateSubcategoryInput,
+	Subcategory,
+	UpdateSubcategoryInput,
+} from "./subcategories.schema";
 
 export class SubcategoryModel {
 	async findAll(userId: string): Promise<Subcategory[]> {
@@ -16,11 +20,16 @@ export class SubcategoryModel {
 			})
 			.from(subcategories)
 			.leftJoin(categories, eq(subcategories.categoryId, categories.id))
-			.where(and(eq(subcategories.userId, userId), isNull(subcategories.deletedAt)))
+			.where(
+				and(eq(subcategories.userId, userId), isNull(subcategories.deletedAt)),
+			)
 			.orderBy(asc(subcategories.name));
 	}
 
-	async findByCategory(userId: string, categoryId: string): Promise<Subcategory[]> {
+	async findByCategory(
+		userId: string,
+		categoryId: string,
+	): Promise<Subcategory[]> {
 		return db
 			.select({
 				id: subcategories.id,
@@ -50,6 +59,23 @@ export class SubcategoryModel {
 	}
 
 	async create(userId: string, data: CreateSubcategoryInput) {
+		const subcategoryExists = await db
+			.select()
+			.from(subcategories)
+			.where(
+				and(
+					eq(subcategories.userId, userId),
+					eq(subcategories.categoryId, data.categoryId),
+					eq(subcategories.name, data.name),
+					isNull(subcategories.deletedAt),
+				),
+			)
+			.limit(1);
+
+		if (subcategoryExists.length > 0) {
+			throw new Error("Subcategoria com esse nome já existe nessa categoria");
+		}
+
 		const [subcategory] = await db
 			.insert(subcategories)
 			.values({

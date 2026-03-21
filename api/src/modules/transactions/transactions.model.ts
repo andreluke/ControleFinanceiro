@@ -1,6 +1,11 @@
 import { and, count, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "../../drizzle/client";
-import { categories, paymentMethods, subcategories, transactions } from "../../drizzle/schema";
+import {
+	categories,
+	paymentMethods,
+	subcategories,
+	transactions,
+} from "../../drizzle/schema";
 import type {
 	CreateTransactionInput,
 	ListTransactionsInput,
@@ -112,6 +117,7 @@ export class TransactionModel {
 				type: transactions.type,
 				date: transactions.date,
 				categoryId: transactions.categoryId,
+				subcategoryId: transactions.subcategoryId,
 				category: {
 					id: categories.id,
 					name: categories.name,
@@ -171,14 +177,18 @@ export class TransactionModel {
 			paymentMethodId?: string;
 		} = {};
 
-		if (data.description !== undefined) updateData.description = data.description;
-		if (data.subDescription !== undefined) updateData.subDescription = data.subDescription;
+		if (data.description !== undefined)
+			updateData.description = data.description;
+		if (data.subDescription !== undefined)
+			updateData.subDescription = data.subDescription;
 		if (data.amount !== undefined) updateData.amount = data.amount.toString();
 		if (data.type !== undefined) updateData.type = data.type;
 		if (data.date !== undefined) updateData.date = new Date(data.date);
 		if (data.categoryId !== undefined) updateData.categoryId = data.categoryId;
-		if (data.subcategoryId !== undefined) updateData.subcategoryId = data.subcategoryId;
-		if (data.paymentMethodId !== undefined) updateData.paymentMethodId = data.paymentMethodId;
+		if (data.subcategoryId !== undefined)
+			updateData.subcategoryId = data.subcategoryId;
+		if (data.paymentMethodId !== undefined)
+			updateData.paymentMethodId = data.paymentMethodId;
 
 		const [updated] = await db
 			.update(transactions)

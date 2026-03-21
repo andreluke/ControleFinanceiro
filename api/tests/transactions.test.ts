@@ -11,7 +11,7 @@ describe("Transactions Module", () => {
 	const methodModel = new PaymentMethodModel();
 	const authModel = new AuthModel();
 
-	let app: any;
+	let app: Awaited<ReturnType<typeof buildApp>>;
 	let token: string;
 	let userId: string;
 	let categoryId: string;
