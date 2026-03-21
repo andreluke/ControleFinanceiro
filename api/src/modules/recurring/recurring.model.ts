@@ -4,6 +4,7 @@ import {
 	categories,
 	paymentMethods,
 	recurringTransactions,
+	subcategories,
 } from "../../drizzle/schema";
 import type {
 	CreateRecurringTransactionInput,
@@ -37,11 +38,17 @@ export class RecurringTransactionModel {
 				amount: recurringTransactions.amount,
 				type: recurringTransactions.type,
 				categoryId: recurringTransactions.categoryId,
+				subcategoryId: recurringTransactions.subcategoryId,
 				category: {
 					id: categories.id,
 					name: categories.name,
 					color: categories.color,
 					icon: categories.icon,
+				},
+				subcategory: {
+					id: subcategories.id,
+					name: subcategories.name,
+					color: subcategories.color,
 				},
 				paymentMethodId: recurringTransactions.paymentMethodId,
 				paymentMethod: {
@@ -60,6 +67,7 @@ export class RecurringTransactionModel {
 			})
 			.from(recurringTransactions)
 			.leftJoin(categories, eq(recurringTransactions.categoryId, categories.id))
+			.leftJoin(subcategories, eq(recurringTransactions.subcategoryId, subcategories.id))
 			.leftJoin(
 				paymentMethods,
 				eq(recurringTransactions.paymentMethodId, paymentMethods.id),
@@ -77,11 +85,17 @@ export class RecurringTransactionModel {
 				amount: recurringTransactions.amount,
 				type: recurringTransactions.type,
 				categoryId: recurringTransactions.categoryId,
+				subcategoryId: recurringTransactions.subcategoryId,
 				category: {
 					id: categories.id,
 					name: categories.name,
 					color: categories.color,
 					icon: categories.icon,
+				},
+				subcategory: {
+					id: subcategories.id,
+					name: subcategories.name,
+					color: subcategories.color,
 				},
 				paymentMethodId: recurringTransactions.paymentMethodId,
 				paymentMethod: {
@@ -100,6 +114,7 @@ export class RecurringTransactionModel {
 			})
 			.from(recurringTransactions)
 			.leftJoin(categories, eq(recurringTransactions.categoryId, categories.id))
+			.leftJoin(subcategories, eq(recurringTransactions.subcategoryId, subcategories.id))
 			.leftJoin(
 				paymentMethods,
 				eq(recurringTransactions.paymentMethodId, paymentMethods.id),
@@ -127,6 +142,7 @@ export class RecurringTransactionModel {
 				amount: data.amount.toString(),
 				type: data.type,
 				categoryId: data.categoryId,
+				subcategoryId: data.subcategoryId,
 				paymentMethodId: data.paymentMethodId,
 				frequency: data.frequency,
 				customIntervalDays: data.customIntervalDays?.toString(),

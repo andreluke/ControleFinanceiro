@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { AppError } from "../../errors/AppError";
 import { catchError } from "../../utils/catchError";
+import { triggerGoalMilestoneNotification } from "../../utils/notificationTrigger";
 import { GoalsModel } from "./goals.model";
 import {
 	contributeGoalSchema,
@@ -100,7 +101,7 @@ export class GoalsController {
 			throw new AppError("Não autorizado", 403);
 		}
 
-		const [err, goal] = await catchError(
+		const [err, result] = await catchError(
 			this.goalsModel.contribute(userId, id, data.amount),
 		);
 
@@ -108,7 +109,17 @@ export class GoalsController {
 			throw new AppError("Erro ao contribuir com meta", 500);
 		}
 
-		return reply.send({ goal });
+		if (result) {
+			triggerGoalMilestoneNotification({
+				userId,
+				goalId: id,
+				goalName: existing.name,
+				currentAmount: Number(result.goal.currentAmount),
+				targetAmount: Number(result.goal.targetAmount),
+			}).catch((e) => console.error("[notification] goal trigger failed:", e));
+		}
+
+		return reply.send({ goal: result?.goal });
 	};
 
 	withdraw = async (req: FastifyRequest, reply: FastifyReply) => {

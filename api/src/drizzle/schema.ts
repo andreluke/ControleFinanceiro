@@ -1,5 +1,6 @@
 import {
 	boolean,
+	integer,
 	numeric,
 	pgEnum,
 	pgTable,
@@ -22,6 +23,17 @@ export const frequencyEnum = pgEnum("frequency_type", [
 ]);
 
 export const budgetPeriodEnum = pgEnum("budget_period", ["monthly"]);
+
+export const notificationTypeEnum = pgEnum("notification_type", [
+	"budget_warning",
+	"budget_exceeded",
+	"goal_milestone",
+]);
+
+export const notificationEntityTypeEnum = pgEnum("notification_entity_type", [
+	"budget",
+	"goal",
+]);
 
 export const users = pgTable("users", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -161,4 +173,32 @@ export const goalContributions = pgTable("goal_contributions", {
 	type: text("type").notNull().default("deposit"),
 	amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
 	createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const notifications = pgTable("notifications", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	userId: uuid("user_id")
+		.references(() => users.id, { onDelete: "cascade" })
+		.notNull(),
+	type: notificationTypeEnum("type").notNull(),
+	title: text("title").notNull(),
+	body: text("body"),
+	entityType: notificationEntityTypeEnum("entity_type"),
+	entityId: uuid("entity_id"),
+	isRead: boolean("is_read").notNull().default(false),
+	createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const notificationSettings = pgTable("notification_settings", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	userId: uuid("user_id")
+		.references(() => users.id, { onDelete: "cascade" })
+		.notNull()
+		.unique(),
+	budgetWarningPct: integer("budget_warning_pct").notNull().default(80),
+	budgetExceeded: boolean("budget_exceeded").notNull().default(true),
+	goalMilestones: boolean("goal_milestones").notNull().default(true),
+	emailEnabled: boolean("email_enabled").notNull().default(false),
+	emailAddress: text("email_address"),
+	updatedAt: timestamp("updated_at").defaultNow(),
 });

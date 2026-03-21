@@ -124,6 +124,42 @@ Todas as mudanças são aplicadas em ambas as plataformas (web e API), exceto on
   - Lista das proximas transacoes recorrentes
   - Indicador de confianca da previsao
 
+#### Feature 2: Notificacoes de Orcamento e Metas
+
+- **Tabela `notifications`**:
+  - Armazena notificacoes geradas automaticamente
+  - Tipos: `budget_warning`, `budget_exceeded`, `goal_milestone`
+  - Campos: `entity_type`, `entity_id` para navegacao
+  - Deduplicacao: nao cria notificacao repetida em 24h
+
+- **Tabela `notification_settings`**:
+  - Configuracoes por usuario
+  - `budget_warning_pct`: percentual para alerta (default: 80%)
+  - `budget_exceeded`: ativar/desativar alertas de orcamento excedido
+  - `goal_milestones`: ativar/desativar marcos de meta
+  - `email_enabled`, `email_address`: configuracoes de email (reservado para feature 5)
+
+- **Endpoints API**:
+  - `GET /notifications`: lista paginada com filtros
+  - `GET /notifications/unread-count`: contagem de nao lidas
+  - `PATCH /notifications/:id/read`: marca como lida
+  - `PATCH /notifications/read-all`: marca todas como lidas
+  - `DELETE /notifications/:id`: exclui notificacao
+  - `GET /notifications/settings`: busca configuracoes
+  - `PUT /notifications/settings`: atualiza configuracoes
+
+- **Gatilhos de Notificacao**:
+  - `triggerBudgetNotification`:disparado ao criar/atualizar transacao
+  - `triggerGoalMilestoneNotification`: disparado ao contribuir em meta
+  - Verifica configuracoes do usuario antes de criar
+  - Marcos de meta: 50%, 75%, 100%
+
+- **Interface Frontend**:
+  - `NotificationBell`: icone de sino no sidebar com badge de contagem
+  - Dropdown com ultimas 10 notificacoes
+  - Acoes rapidas: marcar como lida, excluir
+  - `NotificationsPage`: pagina completa com filtros e lista
+
 ---
 
 ### Melhorias Internas
@@ -142,6 +178,9 @@ Todas as mudanças são aplicadas em ambas as plataformas (web e API), exceto on
 - Atualizado `updateBudgetSchema` com campo `baseAmount`
 - Atualizado `createBudgetSchema` com campo `baseAmount`
 - Lógica em `create` considera subcategorias existentes ao calcular amount total
+- Novo modulo `notifications` com modelos, schemas, controller e rotas
+- Funcoes `triggerBudgetNotification` e `triggerGoalMilestoneNotification` em `notificationTrigger.ts`
+- Integracao de gatilhos nos controllers de `transactions` e `goals`
 
 #### Frontend
 
@@ -150,6 +189,12 @@ Todas as mudanças são aplicadas em ambas as plataformas (web e API), exceto on
 - Tipos `Forecast` e `RecurringUpcoming` em `types/summary`
 - Método `getForecast` em `services/summary`
 - Componente `ForecastCard` criado no dashboard
+- Tipos `Notification`, `NotificationSettings` em `types/notification`
+- Hooks `useNotifications`, `useUnreadCount`, `useMarkAsRead`, `useMarkAllAsRead`, `useDeleteNotification` em `hooks/useNotifications`
+- Hooks `useNotificationSettings`, `useUpdateNotificationSettings` em `hooks/useNotifications`
+- Método `list`, `getUnreadCount`, `markAsRead`, `markAllAsRead`, `delete`, `getSettings`, `updateSettings` em `services/notification`
+- Componente `NotificationBell` criado no sidebar com dropdown
+- Página `NotificationsPage` com lista completa e filtros
 - Componente `Switch` criado usando Radix UI
 - Badge "Recorrente" e "Calculado" nos cards de orçamentos
 - Indicadores visuais para orçamentos desativados (opacidade reduzida)
@@ -236,6 +281,30 @@ CREATE INDEX idx_budgets_is_recurring ON budgets(is_recurring);
 
 -- 0012_budgets_base_amount.sql
 ALTER TABLE budgets ADD COLUMN base_amount NUMERIC(12, 2);
+
+-- 0013_notifications.sql
+CREATE TABLE notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  body TEXT,
+  entity_type VARCHAR(50),
+  entity_id UUID,
+  is_read BOOLEAN DEFAULT FALSE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE notification_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+  budget_warning_pct INTEGER DEFAULT 80,
+  budget_exceeded BOOLEAN DEFAULT TRUE,
+  goal_milestones BOOLEAN DEFAULT TRUE,
+  email_enabled BOOLEAN DEFAULT FALSE,
+  email_address VARCHAR(255),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
 ```
 
 ### Tabela budgets (campos novos)
@@ -247,8 +316,33 @@ ALTER TABLE budgets ADD COLUMN base_amount NUMERIC(12, 2);
 | `recurring_group_id` | uuid | Agrupa orçamentos recorrentes entre meses |
 | `base_amount` | numeric | Valor base da categoria (sem subcategorias) |
 
+### Tabela notifications (nova)
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `id` | uuid | Identificador único |
+| `user_id` | uuid | Referência ao usuário |
+| `type` | varchar | Tipo: budget_warning, budget_exceeded, goal_milestone |
+| `title` | varchar | Título da notificação |
+| `body` | text | Corpo/descrição |
+| `entity_type` | varchar | Tipo da entidade: budget, goal |
+| `entity_id` | uuid | ID da entidade relacionada |
+| `is_read` | boolean | Se foi lida |
+| `created_at` | timestamp | Data de criação |
+
+### Tabela notification_settings (nova)
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `user_id` | uuid | Referência ao usuário (único) |
+| `budget_warning_pct` | integer | Percentual para alerta (default: 80) |
+| `budget_exceeded` | boolean | Ativar alertas de orçamento excedido |
+| `goal_milestones` | boolean | Ativar marcos de meta |
+| `email_enabled` | boolean | Ativar notificações por email |
+| `email_address` | varchar | Endereço de email |
+
 ---
 
 ## Histórico de Versões
 
-- **[1.x.x]** - Versão atual em desenvolvimento com módulo de Metas e Orçamentos Recorrentes completos
+- **[1.x.x]** - Versão atual em desenvolvimento com Features 1 e 2: Previsão de Fechamento e Notificações

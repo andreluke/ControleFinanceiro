@@ -211,6 +211,7 @@ export class RecurringTransactionController {
 				type: recurring.type as "income" | "expense",
 				date: nextDate.toISOString(),
 				categoryId: recurring.categoryId ?? undefined,
+				subcategoryId: recurring.subcategoryId ?? undefined,
 				paymentMethodId: recurring.paymentMethodId ?? undefined,
 			}),
 		);

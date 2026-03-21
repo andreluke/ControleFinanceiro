@@ -117,6 +117,7 @@ export class TransactionModel {
 				type: transactions.type,
 				date: transactions.date,
 				categoryId: transactions.categoryId,
+				subcategoryId: transactions.subcategoryId,
 				category: {
 					id: categories.id,
 					name: categories.name,
