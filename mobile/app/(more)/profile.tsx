@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Switch } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useState, useCallback } from 'react'
 import { useFocusEffect, useRouter } from 'expo-router'
@@ -15,7 +15,6 @@ export default function ProfileScreen() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [notifications, setNotifications] = useState(true)
   
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -171,12 +170,7 @@ export default function ProfileScreen() {
               </View>
               <Text style={styles.menuTitle}>Notificações</Text>
             </View>
-            <Switch
-              value={notifications}
-              onValueChange={setNotifications}
-              trackColor={{ false: colors.muted, true: colors.primary }}
-              thumbColor={colors.foreground}
-            />
+            <Text style={styles.menuValue}>Em breve</Text>
           </View>
         </View>
 

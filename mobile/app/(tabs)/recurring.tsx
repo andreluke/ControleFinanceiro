@@ -1,4 +1,4 @@
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert, Switch } from 'react-native'
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useState, useCallback } from 'react'
 import { useFocusEffect, useRouter } from 'expo-router'
@@ -77,7 +77,7 @@ export default function RecurringScreen() {
       setSelectedCategory(item.categoryId || '')
       setSelectedPaymentMethod(item.paymentMethodId || '')
       setFrequency(item.frequency)
-      setStartDate(new Date(item.date).toISOString().split('T')[0])
+      setStartDate(new Date(item.startDate).toISOString().split('T')[0])
     } else {
       setEditingItem(null)
       setType('expense')
@@ -107,7 +107,7 @@ export default function RecurringScreen() {
         type,
         categoryId: selectedCategory || undefined,
         paymentMethodId: selectedPaymentMethod || undefined,
-        date: new Date(startDate).toISOString(),
+        startDate: new Date(startDate).toISOString(),
         frequency,
       }
 
@@ -199,12 +199,9 @@ export default function RecurringScreen() {
             <TouchableOpacity onPress={() => handleProcess(item)} style={styles.actionButton}>
               <Icons.Repeat size={18} color={colors.primary} />
             </TouchableOpacity>
-            <Switch
-              value={item.isActive}
-              onValueChange={() => handleToggle(item)}
-              trackColor={{ false: colors.muted, true: colors.primary }}
-              thumbColor={colors.foreground}
-            />
+            <Text style={{ color: item.isActive ? colors.success : colors.secondary }}>
+              {item.isActive ? 'Ativo' : 'Inativo'}
+            </Text>
           </View>
         </View>
         <View style={styles.bottomRow}>

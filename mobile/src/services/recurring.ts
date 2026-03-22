@@ -7,7 +7,7 @@ export interface RecurringTransaction {
   description: string
   amount: number
   type: 'income' | 'expense'
-  date: string
+  startDate: string
   frequency: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'
   customIntervalDays?: number
   categoryId?: string
@@ -30,7 +30,7 @@ export interface CreateRecurringRequest {
   description: string
   amount: number
   type: 'income' | 'expense'
-  date: string
+  startDate: string
   frequency: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'
   customIntervalDays?: number
   categoryId?: string
@@ -41,7 +41,7 @@ export interface UpdateRecurringRequest {
   description?: string
   amount?: number
   type?: 'income' | 'expense'
-  date?: string
+  startDate?: string
   frequency?: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'
   customIntervalDays?: number
   categoryId?: string

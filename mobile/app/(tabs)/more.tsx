@@ -1,6 +1,6 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Switch, Alert } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native'
+import type { ReactNode } from 'react'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useState, type ReactNode } from 'react'
 import { useRouter } from 'expo-router'
 import { Card, CardContent } from '../../src/components/ui'
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../src/theme/tokens'
@@ -40,8 +40,6 @@ function MenuItem({ icon, title, subtitle, onPress, rightElement, danger }: Menu
 export default function MoreScreen() {
   const router = useRouter()
   const { logout, user } = useAuthStore()
-  const [notifications, setNotifications] = useState(true)
-  const [darkMode, setDarkMode] = useState(true)
 
   const handleLogout = () => {
     Alert.alert(
@@ -84,26 +82,13 @@ export default function MoreScreen() {
           <MenuItem
             icon={<Icons.Bell size={20} />}
             title="Notificações"
-            rightElement={
-              <Switch
-                value={notifications}
-                onValueChange={setNotifications}
-                trackColor={{ false: colors.muted, true: colors.primary }}
-                thumbColor={colors.foreground}
-              />
-            }
+            subtitle="Ver e gerenciar notificações"
+            onPress={() => router.push('/(tabs)/notifications')}
           />
           <MenuItem
             icon={<Icons.Moon size={20} />}
             title="Modo Escuro"
-            rightElement={
-              <Switch
-                value={darkMode}
-                onValueChange={setDarkMode}
-                trackColor={{ false: colors.muted, true: colors.primary }}
-                thumbColor={colors.foreground}
-              />
-            }
+            subtitle="Em breve"
           />
         </View>
 

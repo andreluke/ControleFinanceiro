@@ -36,5 +36,6 @@ export {
   type UpdateRecurringRequest 
 } from './recurring'
 export { paymentMethodService, type PaymentMethod } from './paymentMethods'
+export { notificationService, type Notification, type NotificationSettings, type NotificationListResponse } from './notification'
 export { cacheService, CACHE_KEYS } from './cache'
 export { withCache, clearCache, clearKeys, cacheUtils } from './cacheUtils'
