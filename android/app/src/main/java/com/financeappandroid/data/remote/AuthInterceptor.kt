@@ -6,10 +6,11 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.Response
 import javax.inject.Inject
+import javax.inject.Provider
 
 class AuthInterceptor @Inject constructor(
     private val tokenPreferences: TokenPreferences,
-    private val authService: AuthService
+    private val authServiceProvider: Provider<AuthService>
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -63,6 +64,7 @@ class AuthInterceptor @Inject constructor(
 
     private suspend fun refreshTokenSync(): String? {
         return try {
+            val authService = authServiceProvider.get()
             val response = authService.refreshToken()
             if (response.isSuccessful) {
                 val newToken = response.body()?.token

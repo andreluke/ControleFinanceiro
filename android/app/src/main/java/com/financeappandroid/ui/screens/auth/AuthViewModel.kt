@@ -54,7 +54,7 @@ class AuthViewModel @Inject constructor(
         checkLoginStatus()
     }
 
-    private fun checkLoginStatus() {
+    fun checkLoginStatus() {
         viewModelScope.launch {
             authRepository.isLoggedIn().collect { isLoggedIn ->
                 _uiState.value = _uiState.value.copy(isLoggedIn = isLoggedIn)

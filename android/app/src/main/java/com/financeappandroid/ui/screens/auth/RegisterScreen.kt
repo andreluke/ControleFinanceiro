@@ -15,7 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeappandroid.ui.components.AppButton
 import com.financeappandroid.ui.components.AppInput
 import com.financeappandroid.ui.theme.*
@@ -25,7 +24,7 @@ import kotlinx.coroutines.flow.collectLatest
 fun RegisterScreen(
     onNavigateToLogin: () -> Unit,
     onRegisterSuccess: () -> Unit,
-    viewModel: AuthViewModel = hiltViewModel()
+    viewModel: AuthViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
