@@ -2,7 +2,7 @@ package com.financeappandroid.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// App Colors - matching mobile app
+// App Colors - matching mobile app design tokens
 val Background = Color(0xFF0F1117)
 val Card = Color(0xFF1A2035)
 val Primary = Color(0xFF2563EB)
@@ -15,6 +15,13 @@ val Secondary = Color(0xFF9CA3AF)
 val Muted = Color(0xFF374151)
 val Border = Color(0xFF374151)
 val Input = Color(0xFF1F2937)
+
+// Border radius tokens (for reference in dp)
+val borderRadiusSm = 4
+val borderRadiusMd = 8
+val borderRadiusLg = 12
+val borderRadiusXl = 16
+val borderRadiusFull = 9999
 
 // Legacy support
 val Purple80 = Color(0xFFD0BCFF)

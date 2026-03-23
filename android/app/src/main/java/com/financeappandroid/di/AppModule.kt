@@ -5,8 +5,17 @@ import com.financeappandroid.BuildConfig
 import com.financeappandroid.data.preferences.TokenPreferences
 import com.financeappandroid.data.remote.AuthInterceptor
 import com.financeappandroid.data.remote.AuthService
+import com.financeappandroid.data.remote.CategoryService
+import com.financeappandroid.data.remote.SummaryService
+import com.financeappandroid.data.remote.TransactionService
 import com.financeappandroid.data.repository.AuthRepositoryImpl
+import com.financeappandroid.data.repository.CategoryRepositoryImpl
+import com.financeappandroid.data.repository.SummaryRepositoryImpl
+import com.financeappandroid.data.repository.TransactionRepositoryImpl
 import com.financeappandroid.domain.repository.AuthRepository
+import com.financeappandroid.domain.repository.CategoryRepository
+import com.financeappandroid.domain.repository.SummaryRepository
+import com.financeappandroid.domain.repository.TransactionRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -64,6 +73,24 @@ object NetworkModule {
     fun provideAuthService(retrofit: Retrofit): AuthService {
         return retrofit.create(AuthService::class.java)
     }
+
+    @Provides
+    @Singleton
+    fun provideSummaryService(retrofit: Retrofit): SummaryService {
+        return retrofit.create(SummaryService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideTransactionService(retrofit: Retrofit): TransactionService {
+        return retrofit.create(TransactionService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideCategoryService(retrofit: Retrofit): CategoryService {
+        return retrofit.create(CategoryService::class.java)
+    }
 }
 
 @Module
@@ -77,5 +104,29 @@ object RepositoryModule {
         tokenPreferences: TokenPreferences
     ): AuthRepository {
         return AuthRepositoryImpl(authService, tokenPreferences)
+    }
+
+    @Provides
+    @Singleton
+    fun provideSummaryRepository(
+        summaryService: SummaryService
+    ): SummaryRepository {
+        return SummaryRepositoryImpl(summaryService)
+    }
+
+    @Provides
+    @Singleton
+    fun provideTransactionRepository(
+        transactionService: TransactionService
+    ): TransactionRepository {
+        return TransactionRepositoryImpl(transactionService)
+    }
+
+    @Provides
+    @Singleton
+    fun provideCategoryRepository(
+        categoryService: CategoryService
+    ): CategoryRepository {
+        return CategoryRepositoryImpl(categoryService)
     }
 }

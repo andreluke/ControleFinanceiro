@@ -40,6 +40,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.financeappandroid.ui.components.AppButton
 import com.financeappandroid.ui.components.AppInput
+import com.financeappandroid.ui.navigation.MainNavigation
 import com.financeappandroid.ui.screens.auth.AuthEvent
 import com.financeappandroid.ui.screens.auth.AuthViewModel
 import com.financeappandroid.ui.theme.*
@@ -86,18 +87,12 @@ fun FinanceAppContent() {
         }
         
         composable("main") {
-            MainScreenPlaceholder()
+            MainNavigation(
+                onLogout = {
+                    // Handle logout
+                }
+            )
         }
-    }
-}
-
-@Composable
-fun MainScreenPlaceholder() {
-    Box(
-        modifier = Modifier.fillMaxSize().background(Background),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("Main Screen - Logged In!", color = Foreground)
     }
 }
 
