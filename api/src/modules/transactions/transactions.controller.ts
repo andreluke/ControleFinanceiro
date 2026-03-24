@@ -38,10 +38,11 @@ export class TransactionsController {
 		);
 
 		if (relevantBudget) {
+			const displayName = relevantBudget.subcategoryName ?? relevantBudget.categoryName;
 			triggerBudgetNotification({
 				userId,
 				budgetId: relevantBudget.id,
-				categoryName: relevantBudget.categoryName,
+				categoryName: displayName,
 				usedAmount: relevantBudget.spent,
 				budgetAmount: relevantBudget.amount,
 			}).catch((err) => console.error("[notification] budget trigger failed:", err));

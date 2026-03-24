@@ -5,7 +5,7 @@ import type { InferInsertModel, InferSelectModel } from "drizzle-orm";
 
 type Notification = InferSelectModel<typeof notifications>;
 type NewNotification = InferInsertModel<typeof notifications>;
-type NewNotificationSetting = InferInsertModel<typeof notificationSettings>;
+export type NewNotificationSetting = InferInsertModel<typeof notificationSettings>;
 
 export class NotificationModel {
 	async findAll(userId: string, options?: { isRead?: boolean; limit?: number; offset?: number }) {
