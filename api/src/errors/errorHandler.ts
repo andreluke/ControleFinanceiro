@@ -2,105 +2,121 @@ import type { FastifyError, FastifyReply, FastifyRequest } from "fastify";
 import { type ZodError, ZodError as ZodErrorType } from "zod";
 import { AppError } from "./AppError.js";
 
+// ─── Config ────────────────────────────────────────────────────────────────
+
 const isDevelopment =
-	process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+  process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
 
-const errorMessages: Record<string, string> = {
-	DEFAULT: "Algo deu errado. Tente novamente mais tarde.",
-	DB_CONNECTION: "Erro de conexão com o banco de dados.",
-	DB_QUERY: "Erro ao processar sua solicitação.",
-	AUTH_INVALID: "E-mail ou senha incorretos.",
-	AUTH_EMAIL_EXISTS: "Este e-mail já está cadastrado.",
-	AUTH_UNAUTHORIZED:
-		"Você precisa estar autenticado para acessar este recurso.",
-	NOT_FOUND: "Registro não encontrado.",
-	VALIDATION: "Dados inválidos. Verifique os campos obrigatórios.",
-};
+// ─── Error Messages ─────────────────────────────────────────────────────────
 
-function getFriendlyMessage(error: Error): string {
-	const message = error.message?.toLowerCase() || "";
+const ERROR_MESSAGES = {
+  DEFAULT: "Algo deu errado. Tente novamente mais tarde.",
+  DB_CONNECTION: "Erro de conexão com o banco de dados.",
+  DB_QUERY: "Erro ao processar sua solicitação.",
+  AUTH_INVALID: "E-mail ou senha incorretos.",
+  AUTH_EMAIL_EXISTS: "Este e-mail já está cadastrado.",
+  AUTH_UNAUTHORIZED:
+    "Você precisa estar autenticado para acessar este recurso.",
+  NOT_FOUND: "Registro não encontrado.",
+  VALIDATION: "Dados inválidos. Verifique os campos obrigatórios.",
+} as const;
 
-	if (message.includes("connection") || message.includes("connect")) {
-		return errorMessages.DB_CONNECTION;
-	}
-	if (message.includes("duplicate") || message.includes("unique")) {
-		return errorMessages.AUTH_EMAIL_EXISTS;
-	}
-	if (message.includes("invalid") && message.includes("credentials")) {
-		return errorMessages.AUTH_INVALID;
-	}
-	if (message.includes("not found")) {
-		return errorMessages.NOT_FOUND;
-	}
+type ErrorMessageKey = keyof typeof ERROR_MESSAGES;
 
-	return errorMessages.DEFAULT;
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function resolveAppErrorMessage(message: string): string {
+  const key = message.toUpperCase().replace(/ /g, "_") as ErrorMessageKey;
+  return ERROR_MESSAGES[key] ?? message;
 }
 
+function resolveHttpErrorLabel(statusCode: number): string {
+  if (statusCode === 401) return "Unauthorized";
+  if (statusCode >= 500) return "Internal Server Error";
+  if (statusCode >= 400) return "Bad Request";
+  return "Error";
+}
+
+function buildZodMessage(error: ZodError): string {
+  const first = error.errors[0];
+  if (!first) return "Dados inválidos.";
+
+  const field =
+    first.path.length > 0
+      ? (first.path[first.path.length - 1]?.toString() ?? "campo")
+      : "campo";
+
+  switch (first.code) {
+    case "invalid_type":
+      return `O campo "${field}" é obrigatório.`;
+    case "invalid_enum_value":
+      return `Valor inválido para "${field}". Use: ${first.options?.join(", ") ?? "valores válidos"}`;
+    default:
+      return first.message || "Dados inválidos.";
+  }
+}
+
+// ─── Response Builders ───────────────────────────────────────────────────────
+
+function sendZodError(reply: FastifyReply, error: ZodError) {
+  return reply.status(400).send({
+    statusCode: 400,
+    error: "Validation Error",
+    message: buildZodMessage(error),
+    ...(isDevelopment && { details: error.errors }),
+  });
+}
+
+function sendAppError(reply: FastifyReply, error: AppError) {
+  return reply.status(error.statusCode).send({
+    statusCode: error.statusCode,
+    error: resolveHttpErrorLabel(error.statusCode),
+    message: resolveAppErrorMessage(error.message),
+  });
+}
+
+function sendFastifyValidationError(reply: FastifyReply, error: FastifyError) {
+  return reply.status(400).send({
+    statusCode: 400,
+    error: "Validation Error",
+    message: ERROR_MESSAGES.VALIDATION,
+    ...(isDevelopment && { details: error.validation }),
+  });
+}
+
+function sendGenericError(reply: FastifyReply, error: FastifyError) {
+  const statusCode = error.statusCode ?? 500;
+  const isServerError = statusCode >= 500;
+
+  if (isDevelopment) reply.log.error(error);
+
+  return reply.status(statusCode).send({
+    statusCode,
+    error: resolveHttpErrorLabel(statusCode),
+    message: isServerError ? ERROR_MESSAGES.DEFAULT : error.message,
+  });
+}
+
+// ─── Handler ─────────────────────────────────────────────────────────────────
+
 export async function errorHandler(
-	error: FastifyError | Error,
-	_request: FastifyRequest,
-	reply: FastifyReply,
+  error: FastifyError | Error,
+  _request: FastifyRequest,
+  reply: FastifyReply,
 ) {
-	const err = error as Error;
+  if (error instanceof ZodErrorType || error.name === "ZodError") {
+    return sendZodError(reply, error as ZodError);
+  }
 
-	if (err.name === "ZodError" || err instanceof ZodErrorType) {
-		const zodErr = err as ZodError;
-		const firstError = zodErr.errors[0];
-		let message = "Dados inválidos.";
+  if (error instanceof AppError) {
+    return sendAppError(reply, error);
+  }
 
-		if (firstError) {
-			const field = firstError.path.join(".");
-			const fieldName = field ? field.replace(/.*\./, "") : "campo";
+  const fastifyError = error as FastifyError;
 
-			if (firstError.code === "invalid_type") {
-				message = `O campo "${fieldName}" é obrigatório.`;
-			} else if (firstError.code === "invalid_enum_value") {
-				const validOptions =
-					firstError.options?.join(", ") || "valores válidos";
-				message = `Valor inválido para "${fieldName}". Use: ${validOptions}`;
-			} else {
-				message = firstError.message || "Dados inválidos.";
-			}
-		}
+  if (fastifyError.validation) {
+    return sendFastifyValidationError(reply, fastifyError);
+  }
 
-		return reply.status(400).send({
-			statusCode: 400,
-			error: "Validation Error",
-			message,
-			details: isDevelopment ? zodErr.errors : undefined,
-		});
-	}
-
-	if (error instanceof AppError) {
-		const friendlyMessage =
-			errorMessages[error.message.toUpperCase().replace(/ /g, "_")] ||
-			error.message;
-		return reply.status(error.statusCode).send({
-			statusCode: error.statusCode,
-			error: error.statusCode === 401 ? "Unauthorized" : "Bad Request",
-			message: friendlyMessage,
-		});
-	}
-
-	if (error.validation) {
-		return reply.status(400).send({
-			statusCode: 400,
-			error: "Validation Error",
-			message: errorMessages.VALIDATION,
-			details: isDevelopment ? error.validation : undefined,
-		});
-	}
-
-	const statusCode = error.statusCode ?? 500;
-	const message = statusCode >= 500 ? errorMessages.DEFAULT : error.message;
-
-	if (isDevelopment) {
-		reply.log.error(error);
-	}
-
-	return reply.status(statusCode).send({
-		statusCode,
-		error: statusCode >= 500 ? "Internal Server Error" : "Error",
-		message,
-	});
+  return sendGenericError(reply, fastifyError);
 }
