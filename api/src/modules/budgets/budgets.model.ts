@@ -43,19 +43,32 @@ export class BudgetsModel {
 		const parentBudget = categoryBudgets.find((b) => !b.subcategoryId);
 		const subcategoryBudgets = categoryBudgets.filter((b) => b.subcategoryId);
 
-		if (parentBudget) {
-			const subcategoriesTotal = subcategoryBudgets.reduce(
-				(sum, b) => sum + toNumber(b.amount),
-				0,
-			);
-			const baseAmount = toNumber(parentBudget.baseAmount);
-			const newTotal = baseAmount + subcategoriesTotal;
-
-			await db
-				.update(budgets)
-				.set({ amount: String(newTotal), updatedAt: new Date() })
-				.where(eq(budgets.id, parentBudget.id));
+		if (!parentBudget) {
+			await db.insert(budgets).values({
+				userId,
+				categoryId,
+				subcategoryId: null,
+				amount: "0",
+				baseAmount: "0",
+				month: String(month),
+				year: String(year),
+				isRecurring: false,
+				isActive: true,
+			});
+			return;
 		}
+
+		const subcategoriesTotal = subcategoryBudgets.reduce(
+			(sum, b) => sum + toNumber(b.amount),
+			0,
+		);
+		const baseAmount = toNumber(parentBudget.baseAmount);
+		const newTotal = baseAmount + subcategoriesTotal;
+
+		await db
+			.update(budgets)
+			.set({ amount: String(newTotal), updatedAt: new Date() })
+			.where(eq(budgets.id, parentBudget.id));
 	}
 
 	async create(data: CreateBudgetInput & { userId: string }): Promise<Budget> {
@@ -159,7 +172,13 @@ export class BudgetsModel {
 		return db
 			.select()
 			.from(budgets)
-			.where(and(eq(budgets.userId, userId), eq(budgets.isRecurring, true)));
+			.where(and(eq(budgets.userId, userId), eq(budgets.isRecurring, true)))
+			.orderBy(desc(budgets.year), desc(budgets.month));
+	}
+
+	async findRecurringTemplates(userId: string): Promise<Budget[]> {
+		const allRecurring = await this.findRecurringByUser(userId);
+		return allRecurring.filter((b) => b.id === b.recurringGroupId);
 	}
 
 	async ensureRecurringBudgetsExist(
@@ -167,47 +186,48 @@ export class BudgetsModel {
 		month: number,
 		year: number,
 	): Promise<void> {
-		const recurringBudgets = await this.findRecurringByUser(userId);
+		const recurringTemplates = await this.findRecurringTemplates(userId);
 
-		if (recurringBudgets.length === 0) return;
+		if (recurringTemplates.length === 0) return;
 
 		const existingBudgets = await this.findByUserAndPeriod(userId, month, year);
-		const existingGroupIds = existingBudgets
-			.map((b) => b.recurringGroupId)
-			.filter((id): id is string => id !== null);
 
-		const recurringGroupIds = recurringBudgets
-			.map((b) => b.recurringGroupId)
-			.filter((id): id is string => id !== null);
-
-		const missingGroupIds = recurringGroupIds.filter(
-			(id) => !existingGroupIds.includes(id),
+		const existingKeys = new Set(
+			existingBudgets.map((b) => `${b.categoryId}-${b.subcategoryId}`),
 		);
 
-		for (const groupId of missingGroupIds) {
-			const templateBudget = recurringBudgets.find(
-				(b) => b.recurringGroupId === groupId,
-			);
-			if (!templateBudget) continue;
+		for (const template of recurringTemplates) {
+			const key = `${template.categoryId}-${template.subcategoryId ?? 'null'}`;
+
+			if (existingKeys.has(key)) continue;
 
 			const [isActive] = await db
 				.select({ isActive: budgets.isActive })
 				.from(budgets)
-				.where(eq(budgets.id, groupId))
+				.where(eq(budgets.id, template.id))
 				.limit(1);
 
 			await db.insert(budgets).values({
 				userId,
-				categoryId: templateBudget.categoryId,
-				subcategoryId: templateBudget.subcategoryId,
-				amount: templateBudget.amount,
-				baseAmount: templateBudget.baseAmount,
+				categoryId: template.categoryId,
+				subcategoryId: template.subcategoryId,
+				amount: template.amount,
+				baseAmount: template.baseAmount,
 				month: String(month),
 				year: String(year),
 				isRecurring: true,
 				isActive: isActive?.isActive ?? true,
-				recurringGroupId: groupId,
+				recurringGroupId: template.id,
 			});
+
+			if (template.subcategoryId) {
+				await this.recalculateParentBudget(
+					userId,
+					template.categoryId,
+					month,
+					year,
+				);
+			}
 		}
 	}
 
