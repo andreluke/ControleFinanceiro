@@ -196,7 +196,6 @@ export class RecurringTransactionController {
 			throw new AppError("Transação recorrente está inativa", 400);
 		}
 
-		const now = new Date();
 		const nextDate = this.calculateNextDate(recurring);
 
 		if (!nextDate) {
@@ -217,7 +216,7 @@ export class RecurringTransactionController {
 		);
 		if (errCreate) throw new AppError("Erro ao gerar transação", 500);
 
-		await this.recurringModel.updateLastGeneratedAt(id, userId, now);
+		await this.recurringModel.updateLastGeneratedAt(id, userId, nextDate);
 
 		return reply.status(201).send(transaction);
 	};
